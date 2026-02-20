@@ -1,0 +1,19 @@
+{
+  "profiles": {
+    "low":      {"entropy_budget": 25.0, "containment_min": 0.3, "blast_limit": 50.0, "checks": ["lint"]},
+    "medium":   {"entropy_budget": 18.0, "containment_min": 0.5, "blast_limit": 35.0, "checks": ["lint"]},
+    "high":     {"entropy_budget": 12.0, "containment_min": 0.7, "blast_limit": 20.0, "checks": ["lint", "unit_tests"]},
+    "critical": {"entropy_budget":  6.0, "containment_min": 0.85, "blast_limit": 10.0, "checks": ["lint", "unit_tests"]}
+  },
+  "queue": {
+    "max_retries": 3,
+    "default_target": "main"
+  },
+  "risk": {
+    "max_risk_score": 65.0,
+    "max_damage_score": 60.0,
+    "max_propagation_score": 55.0,
+    "mode": "shadow",
+    "enforce_ratio": 1.0
+  }
+}

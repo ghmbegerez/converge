@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "converge"
+version = "0.1.0"
+description = "Code entropy control through semantic merge coordination"
+requires-python = ">=3.12"
+dependencies = ["networkx>=3.0"]
+
+[project.scripts]
+converge = "converge.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+markers = [
+    "integration: tests that require real network sockets (HTTP server)",
+]
