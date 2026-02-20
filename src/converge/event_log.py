@@ -62,10 +62,15 @@ def _fresh_trace_id() -> str:
 # Lifecycle
 # ---------------------------------------------------------------------------
 
-def init(db_path: str | Path) -> None:
-    """Initialise (or re-initialise) the store for *db_path*."""
-    from converge.adapters.sqlite_store import SqliteStore
-    configure(SqliteStore(db_path))
+def init(db_path: str | Path | None = None, *, backend: str | None = None, dsn: str | None = None) -> None:
+    """Initialise (or re-initialise) the store.
+
+    When *backend* is ``None`` the factory reads ``CONVERGE_DB_BACKEND``
+    (default ``"sqlite"``).  For backward compatibility, passing only
+    *db_path* creates a ``SqliteStore`` directly.
+    """
+    from converge.adapters.store_factory import create_store
+    configure(create_store(backend=backend, db_path=db_path, dsn=dsn))
 
 
 # ---------------------------------------------------------------------------

@@ -1,0 +1,47 @@
+version: "3.9"
+
+services:
+  converge:
+    build: .
+    ports:
+      - "9876:9876"
+    environment:
+      CONVERGE_DB_BACKEND: postgres
+      CONVERGE_PG_DSN: "postgresql://converge:converge@postgres:5432/converge"
+      CONVERGE_AUTH_REQUIRED: "0"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: converge
+      POSTGRES_PASSWORD: converge
+      POSTGRES_DB: converge
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./migrations/001_initial_up.sql:/docker-entrypoint-initdb.d/001_initial.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U converge"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.96.0
+    command: ["--config=/etc/otel-collector-config.yaml"]
+    volumes:
+      - ./otel-collector-config.yaml:/etc/otel-collector-config.yaml:ro
+    ports:
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+      - "8889:8889"   # Prometheus exporter
+    profiles:
+      - observability
+
+volumes:
+  pgdata:

@@ -13,6 +13,12 @@ dependencies = [
     "uvicorn>=0.30.0",
 ]
 
+[project.optional-dependencies]
+postgres = [
+    "psycopg[binary]>=3.1.0",
+    "psycopg_pool>=3.2.0",
+]
+
 [project.scripts]
 converge = "converge.cli:main"
 
@@ -21,7 +27,7 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["src"]
+pythonpath = ["src", "."]
 markers = [
     "integration: tests that require real network sockets (HTTP server)",
 ]

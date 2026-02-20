@@ -1,8 +1,9 @@
 """Contract tests for ConvergeStore implementations.
 
-Every storage backend must pass these tests.  The ``store`` fixture is
-parametrised so that adding a new backend (e.g. Postgres) only requires
-extending the params list.
+Every storage backend must pass these tests.  The ``contract_store`` fixture
+is parametrised so that adding a new backend only requires extending the
+params list.  Postgres tests require ``CONVERGE_TEST_PG_DSN`` to be set;
+they are skipped otherwise.
 """
 
 from __future__ import annotations
@@ -27,11 +28,39 @@ from converge.ports import (
 # Parametrised fixture — extend params for new backends
 # ---------------------------------------------------------------------------
 
-@pytest.fixture(params=["sqlite"])
+def _pg_available() -> bool:
+    return bool(os.environ.get("CONVERGE_TEST_PG_DSN"))
+
+
+_backends = ["sqlite"]
+if _pg_available():
+    _backends.append("postgres")
+
+
+@pytest.fixture(params=_backends)
 def contract_store(request, tmp_path):
     if request.param == "sqlite":
-        return SqliteStore(tmp_path / "contract.db")
-    raise ValueError(f"Unknown backend: {request.param}")
+        store = SqliteStore(tmp_path / "contract.db")
+        yield store
+        store.close()
+    elif request.param == "postgres":
+        from converge.adapters.postgres_store import PostgresStore
+
+        dsn = os.environ["CONVERGE_TEST_PG_DSN"]
+        store = PostgresStore(dsn, min_size=1, max_size=2)
+        # Clean tables before each test for isolation
+        import psycopg
+        with psycopg.connect(dsn) as conn:
+            for table in (
+                "webhook_deliveries", "queue_locks", "risk_policies",
+                "compliance_thresholds", "agent_policies", "intents", "events",
+            ):
+                conn.execute(f"DELETE FROM {table}")
+            conn.commit()
+        yield store
+        store.close()
+    else:
+        raise ValueError(f"Unknown backend: {request.param}")
 
 
 # ===================================================================
