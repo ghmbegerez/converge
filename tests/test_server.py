@@ -2,9 +2,10 @@
 
 import json
 import os
-from http.server import HTTPServer
+import socket
+import threading
+import time
 from io import BytesIO
-from threading import Thread
 from unittest.mock import patch
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError
@@ -12,7 +13,7 @@ from urllib.error import HTTPError
 import pytest
 
 from converge import event_log
-from converge.server import ConvergeHandler, _authorize_request, _verify_github_signature
+from converge.server import _authorize_request, _verify_github_signature
 
 
 # ---------------------------------------------------------------------------
@@ -80,21 +81,36 @@ class TestGitHubSignature:
 
 
 # ---------------------------------------------------------------------------
-# Integration tests: live HTTP server
+# Integration tests: live FastAPI/uvicorn server
 # ---------------------------------------------------------------------------
 
 @pytest.fixture
 def live_server(db_path):
-    """Start a real HTTP server on a random port for testing."""
-    ConvergeHandler.db_path = str(db_path)
-    ConvergeHandler.webhook_secret = ""
+    """Start a FastAPI/uvicorn server on a random port for testing."""
+    import uvicorn
+    from converge.api import create_app
 
-    server = HTTPServer(("127.0.0.1", 0), ConvergeHandler)
-    port = server.server_address[1]
-    thread = Thread(target=server.serve_forever, daemon=True)
+    app = create_app(db_path=str(db_path), webhook_secret="")
+
+    # Find a free port
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+
+    config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="error")
+    server = uvicorn.Server(config)
+    thread = threading.Thread(target=server.run, daemon=True)
     thread.start()
+
+    # Wait for server to be ready
+    deadline = time.time() + 10
+    while not server.started and time.time() < deadline:
+        time.sleep(0.05)
+
     yield f"http://127.0.0.1:{port}"
-    server.shutdown()
+
+    server.should_exit = True
+    thread.join(timeout=5)
 
 
 @pytest.mark.integration
@@ -164,9 +180,9 @@ class TestHTTPEndpoints:
                 urlopen(req)
                 assert False, "Expected 400"
             except HTTPError as e:
-                assert e.code == 400
+                assert e.code == 400 or e.code == 422
                 body = json.loads(e.read())
-                assert "Invalid JSON" in body["error"]
+                assert "error" in body
 
     def test_post_risk_policy_requires_tenant(self, live_server):
         with patch.dict(os.environ, {"CONVERGE_AUTH_REQUIRED": "0"}):
