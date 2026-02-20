@@ -11,6 +11,8 @@ dependencies = [
     "networkx>=3.0",
     "fastapi>=0.115.0",
     "uvicorn>=0.30.0",
+    "httpx>=0.25.0",
+    "PyJWT[crypto]>=2.8.0",
 ]
 
 [project.optional-dependencies]

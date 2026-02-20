@@ -9,6 +9,33 @@ services:
       CONVERGE_DB_BACKEND: postgres
       CONVERGE_PG_DSN: "postgresql://converge:converge@postgres:5432/converge"
       CONVERGE_AUTH_REQUIRED: "0"
+      CONVERGE_GITHUB_WEBHOOK_SECRET: "${CONVERGE_GITHUB_WEBHOOK_SECRET:-}"
+      CONVERGE_GITHUB_APP_ID: "${CONVERGE_GITHUB_APP_ID:-}"
+      CONVERGE_GITHUB_APP_PRIVATE_KEY_PATH: "/secrets/github-app-key.pem"
+      CONVERGE_GITHUB_INSTALLATION_ID: "${CONVERGE_GITHUB_INSTALLATION_ID:-}"
+    volumes:
+      - github-app-key:/secrets:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  converge-worker:
+    build: .
+    command: ["python", "-m", "converge.worker"]
+    environment:
+      CONVERGE_DB_BACKEND: postgres
+      CONVERGE_PG_DSN: "postgresql://converge:converge@postgres:5432/converge"
+      CONVERGE_WORKER_POLL_INTERVAL: "5"
+      CONVERGE_WORKER_BATCH_SIZE: "20"
+      CONVERGE_WORKER_MAX_RETRIES: "3"
+      CONVERGE_WORKER_TARGET: "main"
+      CONVERGE_WORKER_AUTO_CONFIRM: "0"
+      CONVERGE_GITHUB_APP_ID: "${CONVERGE_GITHUB_APP_ID:-}"
+      CONVERGE_GITHUB_APP_PRIVATE_KEY_PATH: "/secrets/github-app-key.pem"
+      CONVERGE_GITHUB_INSTALLATION_ID: "${CONVERGE_GITHUB_INSTALLATION_ID:-}"
+    volumes:
+      - github-app-key:/secrets:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -45,3 +72,4 @@ services:
 
 volumes:
   pgdata:
+  github-app-key:

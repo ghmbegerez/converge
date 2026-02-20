@@ -564,6 +564,12 @@ def cmd_serve(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_worker(args: argparse.Namespace) -> int:
+    from converge.worker import run_worker
+    run_worker(db_path=args.db)
+    return 0
+
+
 # ===================================================================
 # Parser builder
 # ===================================================================
@@ -808,6 +814,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--port", type=int, default=9876)
     p.add_argument("--secret")
 
+    # -- worker --
+    sub.add_parser("worker", help="Start queue worker process")
+
     return parser
 
 
@@ -855,6 +864,7 @@ _DISPATCH = {
     ("export", "decisions"): cmd_export_decisions,
     ("health", "predict"): cmd_health_predict,
     ("serve", None): cmd_serve,
+    ("worker", None): cmd_worker,
 }
 
 # Map subcmd attr names to the dispatch key
