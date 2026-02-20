@@ -173,7 +173,7 @@ class QueueWorker:
         """Async batch publish of decisions to GitHub."""
         from converge.integrations.github_app import publish_decision
 
-        installation_id = int(self.config.github_installation_id)
+        default_installation_id = int(self.config.github_installation_id)
 
         async with httpx.AsyncClient() as client:
             for result in results:
@@ -195,6 +195,10 @@ class QueueWorker:
                 if len(parts) != 2:
                     continue
                 owner, repo = parts
+
+                # Prefer per-intent installation_id (from webhook event),
+                # fall back to global config for legacy/CLI-created intents
+                installation_id = intent.technical.get("installation_id") or default_installation_id
 
                 await publish_decision(
                     owner=owner,

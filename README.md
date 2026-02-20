@@ -236,8 +236,18 @@ Key endpoints:
 | `CONVERGE_TRACE_ID` | Fixed trace ID for a run |
 | `CONVERGE_AUTH_REQUIRED` | Enable API auth (default: `1`) |
 | `CONVERGE_API_KEYS` | API key registry (`key:role:actor:tenant`) |
+| `CONVERGE_RATE_LIMIT_ENABLED` | Enable per-tenant rate limiting (default: `1`) |
+| `CONVERGE_RATE_LIMIT_RPM` | Requests per minute per tenant (default: `120`) |
+| `CONVERGE_GITHUB_APP_ID` | GitHub App numeric ID (enables GitHub integration) |
+| `CONVERGE_GITHUB_APP_PRIVATE_KEY_PATH` | Path to PEM private key file |
+| `CONVERGE_GITHUB_APP_PRIVATE_KEY` | PEM contents (fallback, not recommended for prod) |
+| `CONVERGE_GITHUB_INSTALLATION_ID` | GitHub App installation ID (global default) |
 | `CONVERGE_GITHUB_WEBHOOK_SECRET` | GitHub webhook HMAC secret |
 | `CONVERGE_GITHUB_DEFAULT_TENANT` | Default tenant for PR intents |
+| `CONVERGE_WORKER_POLL_INTERVAL` | Worker poll interval in seconds (default: `5`) |
+| `CONVERGE_WORKER_BATCH_SIZE` | Max intents per worker cycle (default: `20`) |
+| `CONVERGE_WORKER_TARGET` | Target branch for queue processing (default: `main`) |
+| `CONVERGE_WORKER_AUTO_CONFIRM` | Auto-confirm merges: `1` = yes (default: `0`) |
 
 ## State
 
