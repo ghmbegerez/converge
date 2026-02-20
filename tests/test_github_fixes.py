@@ -87,6 +87,42 @@ class TestWorkerHttpxImport:
             assert call_kwargs["installation_id"] == 77777, \
                 "Worker should use per-intent installation_id (77777), not global (999)"
 
+    def test_worker_publish_invalid_installation_id_falls_back(self, db_path):
+        """Invalid per-intent installation_id falls back to global config."""
+        import asyncio
+        from converge.worker import QueueWorker, WorkerConfig
+
+        config = WorkerConfig()
+        config.db_path = str(db_path)
+        config.github_app_id = "123"
+        config.github_installation_id = "999"
+        worker = QueueWorker(config)
+
+        # Create intent with garbage installation_id
+        intent = Intent(
+            id="worker-pub-bad-id",
+            source="feature/x",
+            target="main",
+            status=Status.VALIDATED,
+            created_by="test",
+            technical={
+                "repo": "acme/repo",
+                "initial_base_commit": "sha-abc",
+                "installation_id": "not-a-number",
+            },
+        )
+        event_log.upsert_intent(db_path, intent)
+
+        mock_pub = AsyncMock()
+        with patch("converge.integrations.github_app.publish_decision", mock_pub):
+            asyncio.run(worker._async_publish([
+                {"intent_id": "worker-pub-bad-id", "decision": "validated"},
+            ]))
+            assert mock_pub.called
+            call_kwargs = mock_pub.call_args.kwargs
+            assert call_kwargs["installation_id"] == 999, \
+                "Should fall back to global config when per-intent value is invalid"
+
 
 # ---------------------------------------------------------------------------
 # P1: push webhook multi-repo filtering

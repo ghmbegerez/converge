@@ -197,8 +197,14 @@ class QueueWorker:
                 owner, repo = parts
 
                 # Prefer per-intent installation_id (from webhook event),
-                # fall back to global config for legacy/CLI-created intents
-                installation_id = intent.technical.get("installation_id") or default_installation_id
+                # fall back to global config for legacy/CLI-created intents.
+                installation_id = default_installation_id
+                stored_installation_id = intent.technical.get("installation_id")
+                if stored_installation_id not in (None, ""):
+                    try:
+                        installation_id = int(stored_installation_id)
+                    except (TypeError, ValueError):
+                        pass
 
                 await publish_decision(
                     owner=owner,
