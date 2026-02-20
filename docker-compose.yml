@@ -2,7 +2,9 @@ version: "3.9"
 
 services:
   converge:
-    build: .
+    build:
+      context: .
+      target: api
     ports:
       - "9876:9876"
     environment:
@@ -21,8 +23,9 @@ services:
     restart: unless-stopped
 
   converge-worker:
-    build: .
-    command: ["python", "-m", "converge.worker"]
+    build:
+      context: .
+      target: worker
     environment:
       CONVERGE_DB_BACKEND: postgres
       CONVERGE_PG_DSN: "postgresql://converge:converge@postgres:5432/converge"

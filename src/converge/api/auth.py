@@ -51,6 +51,9 @@ API_ROLE_MAP: dict[str, str] = {
     "/api/agent/policy": "viewer",
     "/api/events": "viewer",
     "/api/predictions": "viewer",
+    "/api/dashboard": "viewer",
+    "/api/dashboard/alerts": "viewer",
+    "/api/export/decisions": "viewer",
     "/api/audit/recent": "operator",
     "/api/compliance/thresholds/history": "operator",
 }
@@ -99,6 +102,10 @@ SCOPE_MAP: dict[str, str] = {
     "GET /health/change": "intents.read",
     "GET /health/change/trend": "intents.read",
     "GET /health/entropy/trend": "intents.read",
+    # Dashboard & Export
+    "GET /dashboard": "intents.read",
+    "GET /dashboard/alerts": "compliance.read",
+    "GET /export/decisions": "events.read",
     # Auth
     "GET /auth/whoami": "intents.read",
     "POST /auth/keys/rotate": "admin",

@@ -1,0 +1,47 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: converge-worker
+  labels:
+    app: converge
+    component: worker
+spec:
+  replicas: 1  # Single worker — queue lock ensures no contention
+  strategy:
+    type: Recreate  # Ensure old worker releases lock before new one starts
+  selector:
+    matchLabels:
+      app: converge
+      component: worker
+  template:
+    metadata:
+      labels:
+        app: converge
+        component: worker
+    spec:
+      terminationGracePeriodSeconds: 60  # Allow current batch to drain
+      containers:
+        - name: worker
+          image: converge:latest
+          command: ["python", "-m", "converge.worker"]
+          envFrom:
+            - configMapRef:
+                name: converge-config
+            - secretRef:
+                name: converge-secrets
+          volumeMounts:
+            - name: github-app-key
+              mountPath: /secrets/github-app
+              readOnly: true
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+      volumes:
+        - name: github-app-key
+          secret:
+            secretName: converge-github-app-key
+            optional: true

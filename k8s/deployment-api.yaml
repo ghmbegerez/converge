@@ -1,0 +1,58 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: converge-api
+  labels:
+    app: converge
+    component: api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: converge
+      component: api
+  template:
+    metadata:
+      labels:
+        app: converge
+        component: api
+    spec:
+      containers:
+        - name: api
+          image: converge:latest
+          ports:
+            - containerPort: 9876
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: converge-config
+            - secretRef:
+                name: converge-secrets
+          volumeMounts:
+            - name: github-app-key
+              mountPath: /secrets/github-app
+              readOnly: true
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: 9876
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: 9876
+            initialDelaySeconds: 5
+            periodSeconds: 10
+      volumes:
+        - name: github-app-key
+          secret:
+            secretName: converge-github-app-key
+            optional: true

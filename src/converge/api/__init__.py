@@ -18,6 +18,7 @@ from converge.observability import add_observability_middleware
 from converge.api.routers import (
     agents,
     compliance,
+    dashboard,
     events,
     health,
     intents,
@@ -113,6 +114,7 @@ def create_app(
     api.include_router(agents.router)
     api.include_router(compliance.router)
     api.include_router(events.router)
+    api.include_router(dashboard.router)
 
     app.include_router(api, prefix="/api")
     app.include_router(api, prefix="/v1")
