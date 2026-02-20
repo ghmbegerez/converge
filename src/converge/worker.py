@@ -31,6 +31,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+import httpx
+
 from converge import engine, event_log
 from converge.models import Event, EventType
 

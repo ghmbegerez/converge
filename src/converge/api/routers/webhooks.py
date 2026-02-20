@@ -42,8 +42,13 @@ async def _try_publish_decision(
     trace_id: str = "",
     risk_score: float = 0.0,
     reason: str = "",
+    installation_id: int | None = None,
 ) -> None:
-    """Best-effort publish a decision to GitHub. Never raises."""
+    """Best-effort publish a decision to GitHub. Never raises.
+
+    ``installation_id`` — prefer the value stored in the intent (from the
+    webhook event).  Falls back to the global ENV var.
+    """
     if not _github_enabled():
         return
     try:
@@ -53,12 +58,14 @@ async def _try_publish_decision(
         if len(parts) != 2:
             return
         owner, repo = parts
-        installation_id = int(os.environ.get("CONVERGE_GITHUB_INSTALLATION_ID", "0"))
+        resolved_id = installation_id or int(
+            os.environ.get("CONVERGE_GITHUB_INSTALLATION_ID", "0")
+        )
 
         await publish_decision(
             owner=owner,
             repo=repo,
-            installation_id=installation_id,
+            installation_id=resolved_id,
             head_sha=head_sha,
             intent_id=intent_id,
             decision=decision,
@@ -178,11 +185,13 @@ async def _handle_pr_opened(
     ))
 
     # Publish "pending" check-run so GitHub UI shows Converge is processing
+    event_installation_id = data.get("installation", {}).get("id")
     await _try_publish_decision(
         repo_full_name=repo_full_name,
         head_sha=head_sha,
         intent_id=intent_id,
         decision="pending",
+        installation_id=event_installation_id,
     )
 
     return {"ok": True, "intent_id": intent_id, "action": "created"}
@@ -230,13 +239,15 @@ async def _handle_pr_closed(
         },
     ))
 
-    # Publish final status to GitHub
+    # Publish final status to GitHub (prefer per-intent installation_id)
+    stored_installation_id = intent.technical.get("installation_id")
     await _try_publish_decision(
         repo_full_name=repo_full_name,
         head_sha=head_sha,
         intent_id=intent_id,
         decision=decision,
         reason="PR closed" if not merged else "PR merged",
+        installation_id=stored_installation_id,
     )
 
     return {"ok": True, "intent_id": intent_id, "action": decision}
@@ -260,12 +271,13 @@ async def _handle_push(
     repo_full_name = data.get("repository", {}).get("full_name", "")
     head_sha = data.get("after", "")
 
-    # Find open intents with this branch as source
+    # Find open intents with this branch as source AND matching repo
     revalidated = []
     for status_val in (Status.READY.value, Status.VALIDATED.value):
         intents = event_log.list_intents(db_path, status=status_val)
         for intent in intents:
-            if intent.source == branch:
+            intent_repo = intent.technical.get("repo", "")
+            if intent.source == branch and (not intent_repo or intent_repo == repo_full_name):
                 # Update head SHA and reset to READY
                 intent.technical["initial_base_commit"] = head_sha
                 event_log.upsert_intent(db_path, intent)
@@ -289,6 +301,7 @@ async def _handle_push(
                     intent_id=intent.id,
                     decision="pending",
                     reason="Re-push detected, revalidating",
+                    installation_id=intent.technical.get("installation_id"),
                 )
 
     return {"ok": True, "action": "push_processed", "revalidated": revalidated}

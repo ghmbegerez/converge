@@ -75,7 +75,7 @@ def reset_limiter() -> None:
 # Paths exempt from rate limiting
 # ---------------------------------------------------------------------------
 
-_EXEMPT_PREFIXES = ("/health", "/metrics")
+_EXEMPT_PREFIXES = ("/health", "/metrics", "/integrations/github")
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
