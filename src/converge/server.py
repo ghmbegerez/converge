@@ -1,8 +1,4 @@
-"""HTTP API server — FastAPI / uvicorn based.
-
-This module replaces the legacy ``http.server`` implementation.
-The original is preserved as ``server_legacy.py`` until S4.
-"""
+"""HTTP API server — FastAPI / uvicorn based."""
 
 from __future__ import annotations
 

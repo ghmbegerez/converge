@@ -127,6 +127,18 @@ def generate_metrics() -> str:
     for (method, path), count in sorted(_error_count.items()):
         lines.append(f'converge_http_errors_total{{method="{method}",path="{path}"}} {count}')
 
+    # Rate limiting metrics
+    try:
+        from converge.api.rate_limit import get_limiter
+        limiter = get_limiter()
+        lines.append("# HELP converge_rate_limit_throttled_total Total throttled requests by tenant.")
+        lines.append("# TYPE converge_rate_limit_throttled_total counter")
+        for tenant, cnt in sorted(limiter.throttled_by_tenant.items()):
+            lines.append(f'converge_rate_limit_throttled_total{{tenant="{tenant}"}} {cnt}')
+        lines.append(f"converge_rate_limit_throttled_global {limiter.total_throttled}")
+    except Exception:
+        pass  # rate limiter not initialized
+
     return "\n".join(lines) + "\n"
 
 

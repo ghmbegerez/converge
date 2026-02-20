@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 
 from converge import analytics, event_log
 from converge.api.auth import enforce_tenant, require_viewer
+from converge.api.schemas import RiskPolicyBody
 from converge.models import EventType
 
 router = APIRouter(tags=["risk"])
@@ -83,13 +84,13 @@ def risk_policy_list(
 @router.post("/risk/policy")
 def risk_policy_upsert(
     request: Request,
-    body: dict[str, Any],
+    body: RiskPolicyBody,
     tenant_id: str | None = None,
     principal: dict = Depends(require_viewer),
 ):
     db = request.app.state.db_path
-    tid = enforce_tenant(body.get("tenant_id") or tenant_id, principal)
-    event_log.upsert_risk_policy(db, tid, body)
+    tid = enforce_tenant(body.tenant_id or tenant_id, principal)
+    event_log.upsert_risk_policy(db, tid, body.model_dump(exclude_none=True))
     return {"ok": True, "tenant_id": tid}
 
 

@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, Request
 
 from converge import event_log, projections
 from converge.api.auth import enforce_tenant, require_operator, require_viewer
+from converge.api.schemas import ComplianceThresholdsBody
 from converge.models import Event, EventType
 
 router = APIRouter(prefix="/compliance", tags=["compliance"])
@@ -50,16 +51,17 @@ def list_thresholds(
 @router.post("/thresholds")
 def upsert_thresholds(
     request: Request,
-    body: dict[str, Any],
+    body: ComplianceThresholdsBody,
     principal: dict = Depends(require_viewer),
 ):
     db = request.app.state.db_path
-    tid = enforce_tenant(body.get("tenant_id") or None, principal)
-    event_log.upsert_compliance_thresholds(db, tid, body)
+    tid = enforce_tenant(body.tenant_id or None, principal)
+    data = body.model_dump(exclude_none=True)
+    event_log.upsert_compliance_thresholds(db, tid, data)
     event_log.append(db, Event(
         event_type=EventType.COMPLIANCE_THRESHOLDS_UPDATED,
         tenant_id=tid,
-        payload=body,
+        payload=data,
     ))
     return {"ok": True, "tenant_id": tid}
 

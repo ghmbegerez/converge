@@ -12,9 +12,14 @@ from converge.models import Event, Intent, RiskLevel, Status, now_iso
 
 @pytest.fixture(autouse=True)
 def _reset_store():
-    """Reset the global store singleton after every test."""
+    """Reset global singletons after every test."""
     yield
     event_log._store = None
+    # Reset rate limiter and rotated keys
+    from converge.api.rate_limit import reset_limiter
+    from converge.api.auth import reset_rotated_keys
+    reset_limiter()
+    reset_rotated_keys()
 
 
 @pytest.fixture

@@ -1,4 +1,4 @@
-"""Intent, summary, auth, and prediction endpoints."""
+"""Intent, summary, auth, key rotation, and prediction endpoints."""
 
 from __future__ import annotations
 
@@ -7,7 +7,8 @@ from typing import Any
 from fastapi import APIRouter, Depends, Request
 
 from converge import event_log, projections
-from converge.api.auth import require_viewer
+from converge.api.auth import require_admin, require_viewer, rotate_key
+from converge.api.schemas import KeyRotateBody
 from converge.models import now_iso
 
 router = APIRouter(tags=["intents"])
@@ -53,3 +54,12 @@ def predictions(
     db = request.app.state.db_path
     tenant = principal.get("tenant") or tenant_id
     return projections.predict_issues(db, tenant_id=tenant)
+
+
+@router.post("/auth/keys/rotate")
+def rotate_api_key(
+    request: Request,
+    body: KeyRotateBody,
+    principal: dict = Depends(require_admin),
+):
+    return rotate_key(request, grace_period_seconds=body.grace_period_seconds)

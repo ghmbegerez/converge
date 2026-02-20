@@ -12,6 +12,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from converge import event_log
+from converge.api.rate_limit import RateLimitMiddleware
 from converge.observability import add_observability_middleware
 
 from converge.api.routers import (
@@ -67,9 +68,18 @@ def create_app(
 
     @app.exception_handler(RequestValidationError)
     async def validation_exception_handler(request: Request, exc: RequestValidationError):
+        # Extract first meaningful error for concise message
+        errors = exc.errors()
+        if errors:
+            first = errors[0]
+            loc = ".".join(str(l) for l in first.get("loc", []))
+            msg = first.get("msg", "Invalid input")
+            detail = f"{loc}: {msg}" if loc else msg
+        else:
+            detail = "Invalid JSON body"
         return JSONResponse(
             status_code=400,
-            content={"error": f"Invalid JSON body"},
+            content={"error": detail},
         )
 
     @app.exception_handler(Exception)
@@ -81,10 +91,14 @@ def create_app(
         )
 
     # ---------------------------------------------------------------
-    # Middleware
+    # Middleware (order matters — last added = outermost)
     # ---------------------------------------------------------------
 
     add_observability_middleware(app)
+
+    # Rate limiting (applied after observability so throttled requests are still logged)
+    if os.environ.get("CONVERGE_RATE_LIMIT_ENABLED", "1") == "1":
+        app.add_middleware(RateLimitMiddleware)
 
     # ---------------------------------------------------------------
     # Routers — mounted at /api (legacy) and /v1 (canonical)

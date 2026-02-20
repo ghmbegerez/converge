@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 
 from converge import agents
 from converge.api.auth import require_admin, require_viewer
+from converge.api.schemas import AgentAuthorizeBody, AgentPolicyBody
 from converge.models import AgentPolicy
 
 router = APIRouter(prefix="/agent", tags=["agents"])
@@ -27,35 +28,27 @@ def list_policies(
 @router.post("/policy")
 def set_policy(
     request: Request,
-    body: dict[str, Any],
+    body: AgentPolicyBody,
     principal: dict = Depends(require_viewer),
 ):
     db = request.app.state.db_path
-    if "agent_id" not in body:
-        raise HTTPException(status_code=400, detail="Missing required field: agent_id")
-    pol = AgentPolicy.from_dict(body)
+    pol = AgentPolicy.from_dict(body.model_dump())
     return agents.set_policy(db, pol)
 
 
 @router.post("/authorize")
 def authorize(
     request: Request,
-    body: dict[str, Any],
+    body: AgentAuthorizeBody,
     principal: dict = Depends(require_admin),
 ):
     db = request.app.state.db_path
     tenant = principal.get("tenant")
-    missing = [f for f in ("agent_id", "action", "intent_id") if f not in body]
-    if missing:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Missing required fields: {', '.join(missing)}",
-        )
     return agents.authorize(
         db,
-        agent_id=body["agent_id"],
-        action=body["action"],
-        intent_id=body["intent_id"],
-        tenant_id=body.get("tenant_id") or tenant,
-        human_approvals=body.get("human_approvals", 0),
+        agent_id=body.agent_id,
+        action=body.action,
+        intent_id=body.intent_id,
+        tenant_id=body.tenant_id or tenant,
+        human_approvals=body.human_approvals,
     )
