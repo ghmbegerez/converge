@@ -96,6 +96,9 @@ class EventType:
     GITHUB_CHECK_RUN_CREATED = "github.check_run_created"
     GITHUB_STATUS_CREATED = "github.status_created"
     GITHUB_DECISION_PUBLISHED = "github.decision_published"
+    # Merge Queue
+    MERGE_GROUP_CHECKS_REQUESTED = "merge_group.checks_requested"
+    MERGE_GROUP_DESTROYED = "merge_group.destroyed"
     # Worker
     WORKER_STARTED = "worker.started"
     WORKER_STOPPED = "worker.stopped"

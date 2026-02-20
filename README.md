@@ -227,7 +227,7 @@ Key endpoints:
 - `GET /api/risk/review?intent_id=X`
 - `GET /api/predictions`
 - `GET /api/events`
-- `POST /integrations/github/webhook`
+- `POST /integrations/github/webhook` (pull_request, push, merge_group)
 
 ## Environment variables
 

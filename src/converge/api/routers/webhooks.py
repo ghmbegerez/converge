@@ -4,6 +4,8 @@ Handles:
   - pull_request opened/synchronize → create/update intent + trigger validation
   - pull_request closed → update intent (MERGED if merged, REJECTED if closed)
   - push on source branch → revalidate associated intent
+  - merge_group checks_requested → create intent for merge queue candidate
+  - merge_group destroyed → reject intent (dequeued / checks failed)
 """
 
 from __future__ import annotations
@@ -138,6 +140,12 @@ async def github_webhook(request: Request):
     # ---------------------------------------------------------------
     if event_type == "push":
         return await _handle_push(db_path, data)
+
+    # ---------------------------------------------------------------
+    # merge_group events → GitHub Merge Queue integration
+    # ---------------------------------------------------------------
+    if event_type == "merge_group":
+        return await _handle_merge_group(db_path, data)
 
     return {"ok": True, "delivery_id": delivery_id}
 
@@ -305,3 +313,133 @@ async def _handle_push(
                 )
 
     return {"ok": True, "action": "push_processed", "revalidated": revalidated}
+
+
+# ---------------------------------------------------------------------------
+# merge_group → GitHub Merge Queue
+# ---------------------------------------------------------------------------
+
+async def _handle_merge_group(
+    db_path: str,
+    data: dict[str, Any],
+) -> dict[str, Any]:
+    """Route merge_group actions to the appropriate handler."""
+    action = data.get("action", "")
+    merge_group = data.get("merge_group", {})
+    repo_full_name = data.get("repository", {}).get("full_name", "")
+    head_sha = merge_group.get("head_sha", "")
+
+    if not head_sha or not repo_full_name:
+        return {"ok": True, "action": "ignored", "reason": "incomplete_payload"}
+
+    intent_id = f"{repo_full_name}:mg-{head_sha[:12]}"
+
+    if action == "checks_requested":
+        return await _handle_merge_group_checks_requested(
+            db_path, data, merge_group, intent_id, repo_full_name, head_sha,
+        )
+
+    if action == "destroyed":
+        return await _handle_merge_group_destroyed(
+            db_path, data, merge_group, intent_id, repo_full_name,
+        )
+
+    return {"ok": True, "action": "ignored", "reason": f"unknown_merge_group_action_{action}"}
+
+
+async def _handle_merge_group_checks_requested(
+    db_path: str,
+    data: dict[str, Any],
+    merge_group: dict[str, Any],
+    intent_id: str,
+    repo_full_name: str,
+    head_sha: str,
+) -> dict[str, Any]:
+    """Create intent when a PR enters GitHub's merge queue."""
+    base_ref = merge_group.get("base_ref", "main")
+    # Strip refs/heads/ prefix if present
+    if base_ref.startswith("refs/heads/"):
+        base_ref = base_ref[len("refs/heads/"):]
+    head_ref = merge_group.get("head_ref", "")
+    tenant = os.environ.get("CONVERGE_GITHUB_DEFAULT_TENANT")
+
+    intent = Intent(
+        id=intent_id,
+        source=head_ref,
+        target=base_ref,
+        status=Status.READY,
+        created_by="github-merge-queue",
+        tenant_id=tenant,
+        semantic={
+            "problem_statement": "Merge queue candidate",
+            "objective": "Validate merge group before integration",
+        },
+        technical={
+            "source_ref": head_ref,
+            "target_ref": base_ref,
+            "initial_base_commit": head_sha,
+            "repo": repo_full_name,
+            "merge_group_head_ref": head_ref,
+            "installation_id": data.get("installation", {}).get("id"),
+            "webhook_event": "merge_group",
+        },
+    )
+    event_log.upsert_intent(db_path, intent)
+    event_log.append(db_path, Event(
+        event_type=EventType.MERGE_GROUP_CHECKS_REQUESTED,
+        intent_id=intent.id,
+        tenant_id=tenant,
+        payload=intent.to_dict(),
+    ))
+
+    event_installation_id = data.get("installation", {}).get("id")
+    await _try_publish_decision(
+        repo_full_name=repo_full_name,
+        head_sha=head_sha,
+        intent_id=intent_id,
+        decision="pending",
+        reason="Merge queue entry — validation starting",
+        installation_id=event_installation_id,
+    )
+
+    return {"ok": True, "intent_id": intent_id, "action": "merge_group_checks_requested"}
+
+
+async def _handle_merge_group_destroyed(
+    db_path: str,
+    data: dict[str, Any],
+    merge_group: dict[str, Any],
+    intent_id: str,
+    repo_full_name: str,
+) -> dict[str, Any]:
+    """Handle merge group destruction (dequeued, checks failed, or conflict)."""
+    intent = event_log.get_intent(db_path, intent_id)
+    if intent is None:
+        return {"ok": True, "intent_id": intent_id, "action": "ignored", "reason": "unknown_intent"}
+
+    reason = data.get("reason", "destroyed")
+
+    event_log.update_intent_status(db_path, intent_id, Status.REJECTED)
+    event_log.append(db_path, Event(
+        event_type=EventType.MERGE_GROUP_DESTROYED,
+        intent_id=intent_id,
+        tenant_id=intent.tenant_id,
+        payload={
+            "source": intent.source,
+            "target": intent.target,
+            "reason": reason,
+            "trigger": "github_merge_group_destroyed",
+        },
+    ))
+
+    head_sha = merge_group.get("head_sha", "")
+    await _try_publish_decision(
+        repo_full_name=repo_full_name,
+        head_sha=head_sha,
+        intent_id=intent_id,
+        decision="rejected",
+        reason=f"Merge group destroyed: {reason}",
+        installation_id=intent.technical.get("installation_id"),
+    )
+
+    return {"ok": True, "intent_id": intent_id, "action": "merge_group_destroyed"}
