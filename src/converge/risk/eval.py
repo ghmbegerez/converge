@@ -14,6 +14,30 @@ from converge.risk.graph import (
     graph_metrics,
     propagation_score,
 )
+# --- Risk score composite weights ---
+_RISK_W_ENTROPIC = 0.30
+_RISK_W_CONTEXTUAL = 0.25
+_RISK_W_COMPLEXITY = 0.20
+_RISK_W_PATH_DEP = 0.25
+# --- Damage score weights ---
+_DMG_W_CONTEXTUAL = 0.5
+_DMG_W_ENTROPIC = 0.3
+_DMG_W_PATH_DEP = 0.2
+# --- Diagnostic thresholds ---
+_DIAG_RISK_HIGH = 60
+_DIAG_RISK_CRITICAL = 80
+_DIAG_ENTROPY_MED = 20
+_DIAG_ENTROPY_HIGH = 40
+_DIAG_PROPAGATION = 40
+_DIAG_CONTAINMENT = 0.4
+_DIAG_ENTROPIC_LOAD = 50
+_DIAG_CONTEXTUAL_VALUE = 60
+_DIAG_PATH_DEP = 40
+# --- Findings thresholds ---
+_FINDING_LARGE_CHANGE = 15
+_FINDING_DEP_SPREAD = 3
+_CONFLICT_DISPLAY_LIMIT = 5     # max conflicts shown in diagnostics
+
 from converge.risk.signals import (
     compute_complexity_delta,
     compute_contextual_value,
@@ -29,10 +53,10 @@ def analyze_findings(intent: Intent, simulation: Simulation) -> list[dict[str, A
     deps_count = len(intent.dependencies)
     conflict_count = len(simulation.conflicts)
 
-    if files_count > 15:
+    if files_count > _FINDING_LARGE_CHANGE:
         findings.append({"code": "semantic.large_change", "severity": "high",
                          "message": f"Change touches {files_count} files"})
-    if deps_count > 3:
+    if deps_count > _FINDING_DEP_SPREAD:
         findings.append({"code": "semantic.dependency_spread", "severity": "medium",
                          "message": f"Depends on {deps_count} other intents"})
     if intent.target in _CORE_TARGETS:
@@ -45,102 +69,130 @@ def analyze_findings(intent: Intent, simulation: Simulation) -> list[dict[str, A
     return findings
 
 
+_BOMB_RECOMMENDATIONS = {
+    "cascade": "Split change to avoid touching high-centrality files simultaneously",
+    "spiral": "Break circular dependencies before merging",
+    "thermal_death": "System is under stress — reduce change scope immediately",
+}
+
+
+# --- Threshold-based diagnostic rules ---
+# (field, op, threshold, code, base_severity, explanation_fmt, recommendation,
+#  escalation_threshold, escalation_severity)
+# explanation_fmt uses {value} placeholder. op is ">" or "<".
+_THRESHOLD_DIAGS: list[tuple[str, str, float, str, str, str, str, float | None, str | None]] = [
+    ("risk_score", ">", _DIAG_RISK_HIGH, "diag.high_risk", "high",
+     "Combined risk score {value:.0f} exceeds safe threshold",
+     "Split this change into smaller, independent intents",
+     _DIAG_RISK_CRITICAL, "critical"),
+    ("entropy_score", ">", _DIAG_ENTROPY_MED, "diag.high_entropy", "medium",
+     "Entropy score {value:.0f} indicates high disorder",
+     "Reduce file count or dependencies before merging",
+     _DIAG_ENTROPY_HIGH, "high"),
+    ("propagation_score", ">", _DIAG_PROPAGATION, "diag.high_propagation", "high",
+     "Change propagation score {value:.0f} indicates wide blast radius",
+     "Review impact graph and consider narrowing scope",
+     None, None),
+    ("containment_score", "<", _DIAG_CONTAINMENT, "diag.low_containment", "medium",
+     "Containment {value:.2f} is below acceptable levels",
+     "Add scope hints or reduce cross-boundary dependencies",
+     None, None),
+    ("entropic_load", ">", _DIAG_ENTROPIC_LOAD, "diag.high_entropic_load", "high",
+     "Entropic load {value:.0f} indicates high disorder introduction",
+     "Reduce the number of files, directories, or dependencies touched",
+     None, None),
+    ("contextual_value", ">", _DIAG_CONTEXTUAL_VALUE, "diag.high_contextual_value", "high",
+     "Change touches critical files (contextual value: {value:.0f})",
+     "Ensure thorough review — these files have high centrality in the codebase",
+     None, None),
+    ("path_dependence", ">", _DIAG_PATH_DEP, "diag.path_dependent", "medium",
+     "Path dependence {value:.0f}: merge order matters",
+     "Coordinate merge timing with related intents",
+     None, None),
+]
+
+
 def build_diagnostics(
     intent: Intent,
     risk_eval: RiskEval,
     simulation: Simulation,
 ) -> list[dict[str, Any]]:
     """Generate explanatory diagnostics from risk evaluation."""
-    diags = []
+    diags: list[dict[str, Any]] = []
+    _apply_threshold_diags(risk_eval, diags)
+    _diag_merge_conflict(simulation, diags)
+    _diag_bombs(risk_eval, diags)
+    _diag_findings(risk_eval, diags)
+    diags.sort(key=lambda d: _SEVERITY_ORDER.get(d["severity"], 3))
+    return diags
 
-    if risk_eval.risk_score > 60:
-        diags.append({
-            "severity": "critical" if risk_eval.risk_score > 80 else "high",
-            "code": "diag.high_risk",
-            "explanation": f"Combined risk score {risk_eval.risk_score:.0f} exceeds safe threshold",
-            "recommendation": "Split this change into smaller, independent intents",
+
+def _apply_threshold_diags(re: RiskEval, out: list[dict[str, Any]]) -> None:
+    """Apply all threshold-based diagnostic rules from _THRESHOLD_DIAGS."""
+    for field, op, threshold, code, base_sev, expl_fmt, rec, esc_thresh, esc_sev in _THRESHOLD_DIAGS:
+        value = getattr(re, field, 0)
+        triggered = (value > threshold) if op == ">" else (value < threshold)
+        if not triggered:
+            continue
+        severity = base_sev
+        if esc_thresh is not None and esc_sev is not None:
+            escalated = (value > esc_thresh) if op == ">" else (value < esc_thresh)
+            if escalated:
+                severity = esc_sev
+        out.append({
+            "severity": severity,
+            "code": code,
+            "explanation": expl_fmt.format(value=value),
+            "recommendation": rec,
         })
 
-    if risk_eval.entropy_score > 20:
-        diags.append({
-            "severity": "high" if risk_eval.entropy_score > 40 else "medium",
-            "code": "diag.high_entropy",
-            "explanation": f"Entropy score {risk_eval.entropy_score:.0f} indicates high disorder",
-            "recommendation": "Reduce file count or dependencies before merging",
-        })
 
-    if not simulation.mergeable:
-        diags.append({
+def _diag_merge_conflict(sim: Simulation, out: list[dict[str, Any]]) -> None:
+    if not sim.mergeable:
+        out.append({
             "severity": "critical",
             "code": "diag.merge_conflict",
-            "explanation": f"Merge has {len(simulation.conflicts)} conflict(s): {', '.join(simulation.conflicts[:5])}",
+            "explanation": f"Merge has {len(sim.conflicts)} conflict(s): {', '.join(sim.conflicts[:_CONFLICT_DISPLAY_LIMIT])}",
             "recommendation": "Resolve conflicts in source branch before retrying",
         })
 
-    if risk_eval.propagation_score > 40:
-        diags.append({
-            "severity": "high",
-            "code": "diag.high_propagation",
-            "explanation": f"Change propagation score {risk_eval.propagation_score:.0f} indicates wide blast radius",
-            "recommendation": "Review impact graph and consider narrowing scope",
-        })
 
-    if risk_eval.containment_score < 0.4:
-        diags.append({
-            "severity": "medium",
-            "code": "diag.low_containment",
-            "explanation": f"Containment {risk_eval.containment_score:.2f} is below acceptable levels",
-            "recommendation": "Add scope hints or reduce cross-boundary dependencies",
-        })
-
-    # Signal-specific diagnostics
-    if risk_eval.entropic_load > 50:
-        diags.append({
-            "severity": "high",
-            "code": "diag.high_entropic_load",
-            "explanation": f"Entropic load {risk_eval.entropic_load:.0f} indicates high disorder introduction",
-            "recommendation": "Reduce the number of files, directories, or dependencies touched",
-        })
-
-    if risk_eval.contextual_value > 60:
-        diags.append({
-            "severity": "high",
-            "code": "diag.high_contextual_value",
-            "explanation": f"Change touches critical files (contextual value: {risk_eval.contextual_value:.0f})",
-            "recommendation": "Ensure thorough review — these files have high centrality in the codebase",
-        })
-
-    if risk_eval.path_dependence > 40:
-        diags.append({
-            "severity": "medium",
-            "code": "diag.path_dependent",
-            "explanation": f"Path dependence {risk_eval.path_dependence:.0f}: merge order matters",
-            "recommendation": "Coordinate merge timing with related intents",
-        })
-
-    # Bomb diagnostics
-    for bomb in risk_eval.bombs:
-        diags.append({
+def _diag_bombs(re: RiskEval, out: list[dict[str, Any]]) -> None:
+    for bomb in re.bombs:
+        out.append({
             "severity": bomb.get("severity", "high"),
             "code": f"diag.bomb.{bomb['type']}",
             "explanation": bomb.get("message", ""),
-            "recommendation": {
-                "cascade": "Split change to avoid touching high-centrality files simultaneously",
-                "spiral": "Break circular dependencies before merging",
-                "thermal_death": "System is under stress — reduce change scope immediately",
-            }.get(bomb["type"], "Review and reduce change scope"),
+            "recommendation": _BOMB_RECOMMENDATIONS.get(bomb["type"], "Review and reduce change scope"),
         })
 
-    for finding in risk_eval.findings:
-        diags.append({
+
+def _diag_findings(re: RiskEval, out: list[dict[str, Any]]) -> None:
+    for finding in re.findings:
+        out.append({
             "severity": finding.get("severity", "medium"),
             "code": finding.get("code", "diag.finding"),
             "explanation": finding.get("message", ""),
             "recommendation": "",
         })
 
-    diags.sort(key=lambda d: _SEVERITY_ORDER.get(d["severity"], 3))
-    return diags
+
+def _compute_composite_scores(
+    ce: float, vc: float, dc: float, pd: float,
+) -> tuple[float, float, float]:
+    """Compute risk_score, entropy_score, damage_score from 4 signals."""
+    risk_score = min(100.0, round(
+        ce * _RISK_W_ENTROPIC +
+        vc * _RISK_W_CONTEXTUAL +
+        dc * _RISK_W_COMPLEXITY +
+        pd * _RISK_W_PATH_DEP,
+        1,
+    ))
+    entropy_score = ce  # entropic_load is the entropy signal
+    damage_score = min(100.0, round(
+        vc * _DMG_W_CONTEXTUAL + ce * _DMG_W_ENTROPIC + pd * _DMG_W_PATH_DEP, 1,
+    ))
+    return risk_score, entropy_score, damage_score
 
 
 def evaluate_risk(
@@ -168,18 +220,8 @@ def evaluate_risk(
     # Detect bombs
     bombs = detect_bombs(intent, simulation, G)
 
-    # Composite risk_score derived from 4 signals (weighted average)
-    risk_score = min(100.0, round(
-        ce * 0.30 +
-        vc * 0.25 +
-        dc * 0.20 +
-        pd * 0.25,
-        1,
-    ))
-
-    # entropy_score and damage_score for backwards compat
-    entropy_score = ce  # entropic_load is the entropy signal
-    damage_score = min(100.0, round(vc * 0.5 + ce * 0.3 + pd * 0.2, 1))
+    # Composite scores from 4 signals
+    risk_score, entropy_score, damage_score = _compute_composite_scores(ce, vc, dc, pd)
 
     return RiskEval(
         intent_id=intent.id,

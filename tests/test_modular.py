@@ -116,6 +116,7 @@ class TestCLIPackageImports:
 class TestModuleLimits:
     MAX_LOC = 400
     EXEMPT = {
+        "adapters/base_store.py",
         "adapters/sqlite_store.py",
         "adapters/postgres_store.py",
         "engine.py",

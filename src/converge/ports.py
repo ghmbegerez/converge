@@ -47,6 +47,7 @@ class IntentStorePort(Protocol):
         *,
         status: str | None = None,
         tenant_id: str | None = None,
+        source: str | None = None,
         limit: int = 200,
     ) -> list[Intent]: ...
     def update_intent_status(

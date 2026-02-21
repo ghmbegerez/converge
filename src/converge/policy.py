@@ -21,6 +21,28 @@ from converge.models import (
     RiskLevel,
 )
 
+# --- Calibration constants ---
+_CALIB_P75 = 0.75
+_CALIB_P90 = 0.90
+_CALIB_P95 = 0.95
+_CALIB_LOW_MULT = 1.5
+_CALIB_CRITICAL_MULT = 0.8
+_CALIB_FLOOR_LOW = 10.0
+_CALIB_FLOOR_MEDIUM = 8.0
+_CALIB_FLOOR_HIGH = 5.0
+_CALIB_FLOOR_CRITICAL = 3.0
+
+# --- Risk gate breach checks (metric, threshold_key, default) ---
+_RISK_GATE_CHECKS: list[tuple[str, str, float]] = [
+    ("risk_score", "max_risk_score", 65.0),
+    ("damage_score", "max_damage_score", 60.0),
+    ("propagation_score", "max_propagation_score", 55.0),
+]
+
+# --- Rollout hashing ---
+_ROLLOUT_HASH_CHARS = 8
+_ROLLOUT_DIVISOR = 0xFFFFFFFF
+
 # ---------------------------------------------------------------------------
 # Default profiles (embedded, overridable via JSON)
 # ---------------------------------------------------------------------------
@@ -154,8 +176,8 @@ def _rollout_bucket(intent_id: str) -> float:
     This ensures consistent behavior across retries.
     """
     import hashlib
-    h = hashlib.sha256(intent_id.encode()).hexdigest()[:8]
-    return int(h, 16) / 0xFFFFFFFF
+    h = hashlib.sha256(intent_id.encode()).hexdigest()[:_ROLLOUT_HASH_CHARS]
+    return int(h, 16) / _ROLLOUT_DIVISOR
 
 
 def evaluate_risk_gate(
@@ -176,13 +198,13 @@ def evaluate_risk_gate(
     - enforce mode with enforce_ratio = 1.0: enforces for all intents
     """
     t = thresholds or DEFAULT_RISK_THRESHOLDS
+    scores = {"risk_score": risk_score, "damage_score": damage_score, "propagation_score": propagation_score}
     breaches = []
-    if risk_score > t.get("max_risk_score", 65.0):
-        breaches.append({"metric": "risk_score", "value": risk_score, "limit": t["max_risk_score"]})
-    if damage_score > t.get("max_damage_score", 60.0):
-        breaches.append({"metric": "damage_score", "value": damage_score, "limit": t["max_damage_score"]})
-    if propagation_score > t.get("max_propagation_score", 55.0):
-        breaches.append({"metric": "propagation_score", "value": propagation_score, "limit": t["max_propagation_score"]})
+    for metric, threshold_key, default in _RISK_GATE_CHECKS:
+        value = scores[metric]
+        limit = t.get(threshold_key, default)
+        if value > limit:
+            breaches.append({"metric": metric, "value": value, "limit": limit})
 
     would_block = len(breaches) > 0
 
@@ -217,13 +239,13 @@ def calibrate_profiles(
 
     entropy_vals = sorted(s.get("entropy_score", 0) for s in historical_scores)
     n = len(entropy_vals)
-    p75 = entropy_vals[int(n * 0.75)] if n > 0 else 18.0
-    p90 = entropy_vals[int(n * 0.90)] if n > 0 else 12.0
-    p95 = entropy_vals[int(n * 0.95)] if n > 0 else 6.0
+    p75 = entropy_vals[int(n * _CALIB_P75)] if n > 0 else 18.0
+    p90 = entropy_vals[int(n * _CALIB_P90)] if n > 0 else 12.0
+    p95 = entropy_vals[int(n * _CALIB_P95)] if n > 0 else 6.0
 
-    profiles["low"]["entropy_budget"] = round(max(p75 * 1.5, 10.0), 1)
-    profiles["medium"]["entropy_budget"] = round(max(p75, 8.0), 1)
-    profiles["high"]["entropy_budget"] = round(max(p90, 5.0), 1)
-    profiles["critical"]["entropy_budget"] = round(max(p95 * 0.8, 3.0), 1)
+    profiles["low"]["entropy_budget"] = round(max(p75 * _CALIB_LOW_MULT, _CALIB_FLOOR_LOW), 1)
+    profiles["medium"]["entropy_budget"] = round(max(p75, _CALIB_FLOOR_MEDIUM), 1)
+    profiles["high"]["entropy_budget"] = round(max(p90, _CALIB_FLOOR_HIGH), 1)
+    profiles["critical"]["entropy_budget"] = round(max(p95 * _CALIB_CRITICAL_MULT, _CALIB_FLOOR_CRITICAL), 1)
 
     return profiles

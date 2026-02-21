@@ -93,9 +93,8 @@ class EventType:
     # Integrations
     WEBHOOK_RECEIVED = "webhook.received"
     # GitHub
-    GITHUB_CHECK_RUN_CREATED = "github.check_run_created"
-    GITHUB_STATUS_CREATED = "github.status_created"
     GITHUB_DECISION_PUBLISHED = "github.decision_published"
+    GITHUB_DECISION_PUBLISH_FAILED = "github.decision_publish_failed"
     # Merge Queue
     MERGE_GROUP_CHECKS_REQUESTED = "merge_group.checks_requested"
     MERGE_GROUP_DESTROYED = "merge_group.destroyed"

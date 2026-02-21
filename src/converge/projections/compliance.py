@@ -8,12 +8,18 @@ from typing import Any
 from converge import event_log
 from converge.models import ComplianceReport, EventType
 
+# --- SLO threshold defaults ---
+_MIN_MERGEABLE_RATE = 0.80
+_MAX_CONFLICT_RATE = 0.20
+_MAX_RETRIES_TOTAL = 200
+_MAX_QUEUE_TRACKED = 1000
+_QUERY_LIMIT = 10000
 
 DEFAULT_THRESHOLDS = {
-    "min_mergeable_rate": 0.80,
-    "max_conflict_rate": 0.20,
-    "max_retries_total": 200,
-    "max_queue_tracked": 1000,
+    "min_mergeable_rate": _MIN_MERGEABLE_RATE,
+    "max_conflict_rate": _MAX_CONFLICT_RATE,
+    "max_retries_total": _MAX_RETRIES_TOTAL,
+    "max_queue_tracked": _MAX_QUEUE_TRACKED,
 }
 
 
@@ -31,17 +37,17 @@ def compliance_report(
         if stored:
             t = {**DEFAULT_THRESHOLDS, **stored}
 
-    sims = event_log.query(db_path, event_type=EventType.SIMULATION_COMPLETED, tenant_id=tenant_id, limit=10000)
+    sims = event_log.query(db_path, event_type=EventType.SIMULATION_COMPLETED, tenant_id=tenant_id, limit=_QUERY_LIMIT)
     total = len(sims)
     mergeable = sum(1 for s in sims if s["payload"].get("mergeable"))
     mergeable_rate = (mergeable / total) if total > 0 else 1.0
     conflict_rate = 1.0 - mergeable_rate
 
-    queue_events = event_log.query(db_path, event_type=EventType.QUEUE_RESET, tenant_id=tenant_id, limit=10000)
-    requeue_events = event_log.query(db_path, event_type=EventType.INTENT_REQUEUED, tenant_id=tenant_id, limit=10000)
+    queue_events = event_log.query(db_path, event_type=EventType.QUEUE_RESET, tenant_id=tenant_id, limit=_QUERY_LIMIT)
+    requeue_events = event_log.query(db_path, event_type=EventType.INTENT_REQUEUED, tenant_id=tenant_id, limit=_QUERY_LIMIT)
     retries_total = len(queue_events) + len(requeue_events)
 
-    intents = event_log.list_intents(db_path, tenant_id=tenant_id, limit=10000)
+    intents = event_log.list_intents(db_path, tenant_id=tenant_id, limit=_QUERY_LIMIT)
     queue_tracked = len(intents)
 
     checks = []
@@ -54,10 +60,10 @@ def compliance_report(
         if not passed:
             alerts.append({"alert": f"SLO breach: {name}", **entry})
 
-    _check("mergeable_rate", round(mergeable_rate, 3), ">=", t.get("min_mergeable_rate", 0.80))
-    _check("conflict_rate", round(conflict_rate, 3), "<=", t.get("max_conflict_rate", 0.20))
-    _check("retries_total", retries_total, "<=", t.get("max_retries_total", 200))
-    _check("queue_tracked", queue_tracked, "<=", t.get("max_queue_tracked", 1000))
+    _check("mergeable_rate", round(mergeable_rate, 3), ">=", t.get("min_mergeable_rate", _MIN_MERGEABLE_RATE))
+    _check("conflict_rate", round(conflict_rate, 3), "<=", t.get("max_conflict_rate", _MAX_CONFLICT_RATE))
+    _check("retries_total", retries_total, "<=", t.get("max_retries_total", _MAX_RETRIES_TOTAL))
+    _check("queue_tracked", queue_tracked, "<=", t.get("max_queue_tracked", _MAX_QUEUE_TRACKED))
 
     return ComplianceReport(
         mergeable_rate=round(mergeable_rate, 3),

@@ -18,6 +18,10 @@ from fastapi import HTTPException, Request
 
 log = logging.getLogger("converge.auth")
 
+# --- Auth constants ---
+_KEY_PREFIX_LEN = 4             # characters of API key shown in logs
+_TOKEN_BYTES = 32               # bytes for generated API keys
+
 
 # ---------------------------------------------------------------------------
 # Role hierarchy
@@ -200,7 +204,7 @@ def _parse_api_keys() -> dict[str, dict[str, str | None]]:
                 "actor": actor,
                 "tenant": tenant,
                 "scopes": scopes,
-                "key_prefix": k[:4],
+                "key_prefix": k[:_KEY_PREFIX_LEN],
             }
     return keys
 
@@ -283,73 +287,74 @@ def _record_access_event(
 # FastAPI dependencies
 # ---------------------------------------------------------------------------
 
-def _resolve_principal(request: Request, min_role: str) -> dict[str, Any]:
-    """Authenticate and authorize a request, raising HTTPException on failure."""
-    method = request.method
-    path = request.url.path
-    db_path = getattr(request.app.state, "db_path", "")
-
-    if not _auth_required():
-        return {"role": "admin", "actor": "anonymous", "tenant": None}
-
-    api_key = request.headers.get("x-api-key", "")
+def _authenticate(api_key: str, method: str, path: str, db_path: str) -> dict[str, Any]:
+    """Validate API key and return principal, or raise 401."""
     if not api_key:
-        _record_access_event(
-            "access.denied", method=method, path=path,
-            reason="no_api_key", db_path=db_path,
-        )
+        _record_access_event("access.denied", method=method, path=path,
+                             reason="no_api_key", db_path=db_path)
         raise HTTPException(status_code=401, detail="Unauthorized")
 
     hashed = hashlib.sha256(api_key.encode()).hexdigest()
-    registry = _parse_api_keys()
-    principal = registry.get(hashed)
-
-    # Check rotated keys
-    if principal is None:
-        principal = _check_rotated_key(hashed)
+    principal = _parse_api_keys().get(hashed) or _check_rotated_key(hashed)
 
     if principal is None:
-        _record_access_event(
-            "access.denied", method=method, path=path,
-            reason="invalid_key", db_path=db_path,
-        )
+        _record_access_event("access.denied", method=method, path=path,
+                             reason="invalid_key", db_path=db_path)
         raise HTTPException(status_code=401, detail="Unauthorized")
+    return principal
 
-    # Role check
+
+def _authorize_role(
+    principal: dict[str, Any], min_role: str,
+    method: str, path: str, db_path: str,
+) -> None:
+    """Check role, raise 401 if insufficient."""
     if ROLE_RANK.get(principal["role"], -1) < ROLE_RANK.get(min_role, 99):
         _record_access_event(
             "access.denied", method=method, path=path,
-            actor=principal.get("actor", ""),
-            role=principal.get("role", ""),
-            tenant=principal.get("tenant"),
-            reason="insufficient_role",
+            actor=principal.get("actor", ""), role=principal.get("role", ""),
+            tenant=principal.get("tenant"), reason="insufficient_role",
             db_path=db_path,
         )
         raise HTTPException(status_code=401, detail="Unauthorized")
 
-    # Scope check
+
+def _authorize_scope(
+    principal: dict[str, Any],
+    method: str, path: str, db_path: str,
+) -> None:
+    """Check scope, raise 403 if missing."""
     required_scope = _resolve_scope(method, path)
     if required_scope and not _principal_has_scope(principal, required_scope):
         _record_access_event(
             "access.denied", method=method, path=path,
-            actor=principal.get("actor", ""),
-            role=principal.get("role", ""),
-            tenant=principal.get("tenant"),
-            reason=f"missing_scope:{required_scope}",
+            actor=principal.get("actor", ""), role=principal.get("role", ""),
+            tenant=principal.get("tenant"), reason=f"missing_scope:{required_scope}",
             db_path=db_path,
         )
         raise HTTPException(status_code=403, detail=f"Missing scope: {required_scope}")
 
-    # Record successful access (skip for high-frequency reads to reduce noise)
+
+def _resolve_principal(request: Request, min_role: str) -> dict[str, Any]:
+    """Authenticate and authorize a request, raising HTTPException on failure."""
+    if not _auth_required():
+        return {"role": "admin", "actor": "anonymous", "tenant": None}
+
+    method = request.method
+    path = request.url.path
+    db_path = getattr(request.app.state, "db_path", "")
+
+    principal = _authenticate(request.headers.get("x-api-key", ""), method, path, db_path)
+    _authorize_role(principal, min_role, method, path, db_path)
+    _authorize_scope(principal, method, path, db_path)
+
+    # Record successful access (skip GET to reduce noise)
     if method != "GET":
         _record_access_event(
             "access.granted", method=method, path=path,
-            actor=principal.get("actor", ""),
-            role=principal.get("role", ""),
-            tenant=principal.get("tenant"),
-            db_path=db_path,
+            actor=principal.get("actor", ""), role=principal.get("role", ""),
+            tenant=principal.get("tenant"), db_path=db_path,
         )
-
     return principal
 
 
@@ -409,7 +414,7 @@ def rotate_key(
         raise HTTPException(status_code=403, detail="Only admin can rotate keys")
 
     # Generate new key
-    new_key = secrets.token_urlsafe(32)
+    new_key = secrets.token_urlsafe(_TOKEN_BYTES)
 
     # Place old key in grace period
     _register_rotated_key(hashed, dict(principal), grace_period_seconds)

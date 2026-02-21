@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -97,6 +98,10 @@ def simulate_from_last(
 
 SUPPORTED_CHECKS = {"lint", "unit_tests", "integration_tests", "security_scan", "contract_tests"}
 
+_CHECK_TIMEOUT = int(os.environ.get("CONVERGE_CHECK_TIMEOUT_SECONDS", "300"))
+_CHECK_OUTPUT_LIMIT = int(os.environ.get("CONVERGE_CHECK_OUTPUT_LIMIT", "2000"))
+_CONFLICT_DISPLAY_LIMIT = 5     # max conflicts shown in block messages
+
 
 def run_checks(
     checks: list[str],
@@ -121,9 +126,9 @@ def run_checks(
             continue
         cmd = check_commands.get(check_type, ["echo", "no-op"])
         try:
-            r = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=300)
+            r = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=_CHECK_TIMEOUT)
             passed = r.returncode == 0
-            details = r.stdout[:2000] if passed else r.stderr[:2000]
+            details = r.stdout[:_CHECK_OUTPUT_LIMIT] if passed else r.stderr[:_CHECK_OUTPUT_LIMIT]
         except (subprocess.TimeoutExpired, FileNotFoundError) as e:
             passed = False
             details = str(e)
@@ -174,23 +179,62 @@ def validate_intent(
     cfg = config or policy.load_config()
     trace_id = _generate_trace_id()
 
-    # Step 1: Simulation
+    sim, blocked = _resolve_simulation(intent, db_path, sim, use_last_simulation, cwd, trace_id)
+    if blocked:
+        return blocked
+
+    checks_passed, blocked = _run_validation_checks(intent, db_path, cfg, skip_checks, sim, trace_id, cwd=cwd)
+    if blocked:
+        return blocked
+
+    risk_eval = _evaluate_risk_step(intent, sim, db_path, cwd, trace_id)
+
+    policy_eval, blocked = _evaluate_policy_step(intent, checks_passed, risk_eval, cfg, db_path, sim, trace_id)
+    if blocked:
+        return blocked
+
+    risk_gate, blocked = _evaluate_risk_gate_step(intent, risk_eval, policy_eval, db_path, sim, trace_id)
+    if blocked:
+        return blocked
+
+    return _finalize_validation(intent, sim, risk_eval, policy_eval, risk_gate, db_path, trace_id)
+
+
+def _resolve_simulation(
+    intent: Intent,
+    db_path: str | Path,
+    sim: Simulation | None,
+    use_last_simulation: bool,
+    cwd: str | Path | None,
+    trace_id: str,
+) -> tuple[Simulation | None, dict[str, Any] | None]:
+    """Step 1: Resolve or run simulation."""
     if sim is None:
         if use_last_simulation:
             sim = simulate_from_last(db_path, intent.id)
             if sim is None:
-                return _block(db_path, intent, "No previous simulation found", trace_id=trace_id)
+                return None, _block(db_path, intent, "No previous simulation found", trace_id=trace_id)
         else:
             sim = simulate(intent.source, intent.target, db_path,
                            intent_id=intent.id, tenant_id=intent.tenant_id, cwd=cwd,
                            trace_id=trace_id)
 
     if not sim.mergeable:
-        return _block(db_path, intent, f"Merge conflicts: {', '.join(sim.conflicts[:5])}",
-                      sim=sim, trace_id=trace_id)
+        return None, _block(db_path, intent, f"Merge conflicts: {', '.join(sim.conflicts[:_CONFLICT_DISPLAY_LIMIT])}",
+                            sim=sim, trace_id=trace_id)
+    return sim, None
 
-    # Step 2: Checks
-    checks_passed: list[str] = []
+
+def _run_validation_checks(
+    intent: Intent,
+    db_path: str | Path,
+    cfg: policy.PolicyConfig,
+    skip_checks: bool,
+    sim: Simulation,
+    trace_id: str,
+    cwd: str | Path | None = None,
+) -> tuple[list[str] | None, dict[str, Any] | None]:
+    """Step 2: Execute checks."""
     if not skip_checks:
         required = checks_for_risk_level(intent.risk_level, cfg)
         results = run_checks(required, db_path, intent_id=intent.id,
@@ -200,13 +244,21 @@ def validate_intent(
         failed = [r for r in results if not r.passed]
         if failed:
             names = [r.check_type for r in failed]
-            return _block(db_path, intent, f"Checks failed: {names}",
-                          sim=sim, trace_id=trace_id)
-    else:
-        # When skipping, assume required checks pass
-        checks_passed = checks_for_risk_level(intent.risk_level, cfg)
+            return None, _block(db_path, intent, f"Checks failed: {names}",
+                                sim=sim, trace_id=trace_id)
+        return checks_passed, None
 
-    # Step 3: Risk evaluation (with archaeology coupling data)
+    return checks_for_risk_level(intent.risk_level, cfg), None
+
+
+def _evaluate_risk_step(
+    intent: Intent,
+    sim: Simulation,
+    db_path: str | Path,
+    cwd: str | Path | None,
+    trace_id: str,
+) -> RiskEval:
+    """Step 3: Evaluate risk (never blocks — informational)."""
     coupling_data = analytics.load_coupling_data(cwd=cwd)
     risk_eval = risk.evaluate_risk(intent, sim, coupling_data=coupling_data)
 
@@ -229,8 +281,19 @@ def validate_intent(
             "trace_id": trace_id,
         },
     ))
+    return risk_eval
 
-    # Step 4: Policy evaluation (3 gates)
+
+def _evaluate_policy_step(
+    intent: Intent,
+    checks_passed: list[str],
+    risk_eval: RiskEval,
+    cfg: policy.PolicyConfig,
+    db_path: str | Path,
+    sim: Simulation,
+    trace_id: str,
+) -> tuple[PolicyEvaluation | None, dict[str, Any] | None]:
+    """Step 4: Evaluate 3 policy gates."""
     policy_eval = policy.evaluate(
         risk_level=intent.risk_level,
         checks_passed=checks_passed,
@@ -256,12 +319,22 @@ def validate_intent(
 
     if policy_eval.verdict == PolicyVerdict.BLOCK:
         blocked_gates = [g.gate.value for g in policy_eval.gates if not g.passed]
-        return _block(db_path, intent,
-                      f"Policy blocked: gates {blocked_gates}",
-                      sim=sim, risk_eval=risk_eval, policy_eval=policy_eval,
-                      trace_id=trace_id)
+        return None, _block(db_path, intent,
+                            f"Policy blocked: gates {blocked_gates}",
+                            sim=sim, risk_eval=risk_eval, policy_eval=policy_eval,
+                            trace_id=trace_id)
+    return policy_eval, None
 
-    # Step 5: Risk gate (shadow/enforce with gradual rollout)
+
+def _evaluate_risk_gate_step(
+    intent: Intent,
+    risk_eval: RiskEval,
+    policy_eval: PolicyEvaluation,
+    db_path: str | Path,
+    sim: Simulation,
+    trace_id: str,
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    """Step 5: Risk gate (shadow/enforce with gradual rollout)."""
     risk_gate = policy.evaluate_risk_gate(
         risk_score=risk_eval.risk_score,
         damage_score=risk_eval.damage_score,
@@ -270,12 +343,23 @@ def validate_intent(
     )
 
     if risk_gate["enforced"]:
-        return _block(db_path, intent,
-                      f"Risk gate enforced: {risk_gate['breaches']}",
-                      sim=sim, risk_eval=risk_eval, policy_eval=policy_eval,
-                      trace_id=trace_id)
+        return None, _block(db_path, intent,
+                            f"Risk gate enforced: {risk_gate['breaches']}",
+                            sim=sim, risk_eval=risk_eval, policy_eval=policy_eval,
+                            trace_id=trace_id)
+    return risk_gate, None
 
-    # All gates passed → VALIDATED
+
+def _finalize_validation(
+    intent: Intent,
+    sim: Simulation,
+    risk_eval: RiskEval,
+    policy_eval: PolicyEvaluation,
+    risk_gate: dict[str, Any],
+    db_path: str | Path,
+    trace_id: str,
+) -> dict[str, Any]:
+    """Step 6: Mark VALIDATED, record event, build response."""
     event_log.update_intent_status(db_path, intent.id, Status.VALIDATED)
     event_log.append(db_path, Event(
         event_type=EventType.INTENT_VALIDATED,
@@ -332,6 +416,16 @@ def _block(
 # Queue processing (Invariants 2 & 3)
 # ---------------------------------------------------------------------------
 
+@dataclass(frozen=True)
+class _QueueOpts:
+    """Bundle of queue-processing options passed between internal functions."""
+    max_retries: int = 3
+    use_last_simulation: bool = False
+    skip_checks: bool = False
+    auto_confirm: bool = False
+    cwd: str | Path | None = None
+
+
 def process_queue(
     db_path: str | Path,
     *,
@@ -352,8 +446,9 @@ def process_queue(
     Uses global file lock to prevent concurrent execution.
     """
     cfg = config or policy.load_config()
+    opts = _QueueOpts(max_retries=max_retries, use_last_simulation=use_last_simulation,
+                      skip_checks=skip_checks, auto_confirm=auto_confirm, cwd=cwd)
 
-    # Acquire SQLite advisory lock
     if not event_log.acquire_queue_lock(db_path):
         lock_info = event_log.get_queue_lock_info(db_path)
         return [{"error": "Queue lock held. Another process may be running.", "lock": lock_info}]
@@ -363,69 +458,8 @@ def process_queue(
         intents = event_log.list_intents(db_path, status=Status.VALIDATED.value, limit=limit)
 
         for intent in intents:
-            # Invariant 3: bounded retry
-            if intent.retries >= max_retries:
-                event_log.update_intent_status(db_path, intent.id, Status.REJECTED, retries=intent.retries)
-                event_log.append(db_path, Event(
-                    event_type=EventType.INTENT_REJECTED,
-                    intent_id=intent.id,
-                    tenant_id=intent.tenant_id,
-                    payload={"reason": f"Max retries ({max_retries}) exceeded", "retries": intent.retries},
-                    evidence={"retries": intent.retries, "max_retries": max_retries},
-                ))
-                results.append({"intent_id": intent.id, "decision": "rejected", "reason": "max_retries_exceeded"})
-                continue
-
-            # Invariant 2: revalidate against current M(t)
-            decision = validate_intent(
-                intent, db_path,
-                use_last_simulation=use_last_simulation,
-                skip_checks=skip_checks,
-                config=cfg,
-                cwd=cwd,
-            )
-
-            if decision["decision"] == "blocked":
-                # Increment retry
-                new_retries = intent.retries + 1
-                new_status = Status.REJECTED if new_retries >= max_retries else Status.READY
-                event_log.update_intent_status(db_path, intent.id, new_status, retries=new_retries)
-
-                event_type = EventType.INTENT_REJECTED if new_status == Status.REJECTED else EventType.INTENT_REQUEUED
-                event_log.append(db_path, Event(
-                    event_type=event_type,
-                    intent_id=intent.id,
-                    tenant_id=intent.tenant_id,
-                    payload={"reason": decision["reason"], "retries": new_retries},
-                    evidence={"retries": new_retries},
-                ))
-                decision["retries"] = new_retries
-                results.append(decision)
-                continue
-
-            # Validated → QUEUED
-            event_log.update_intent_status(db_path, intent.id, Status.QUEUED)
-
-            if auto_confirm:
-                # Confirm merge → MERGED
-                try:
-                    sha = scm.execute_merge(intent.source, intent.target, cwd=cwd)
-                except Exception as e:
-                    sha = f"simulated-{intent.id[:8]}"
-                    decision["merge_note"] = str(e)
-
-                event_log.update_intent_status(db_path, intent.id, Status.MERGED)
-                event_log.append(db_path, Event(
-                    event_type=EventType.INTENT_MERGED,
-                    intent_id=intent.id,
-                    tenant_id=intent.tenant_id,
-                    payload={"merged_commit": sha, "source": intent.source, "target": intent.target},
-                    evidence={"merged_commit": sha},
-                ))
-                decision["decision"] = "merged"
-                decision["merged_commit"] = sha
-
-            results.append(decision)
+            result = _process_single_intent(intent, db_path, cfg, opts)
+            results.append(result)
 
         event_log.append(db_path, Event(
             event_type=EventType.QUEUE_PROCESSED,
@@ -436,6 +470,103 @@ def process_queue(
 
     finally:
         event_log.release_queue_lock(db_path)
+
+
+def _process_single_intent(
+    intent: Intent,
+    db_path: str | Path,
+    cfg: policy.PolicyConfig,
+    opts: _QueueOpts,
+) -> dict[str, Any]:
+    """Process one intent from the queue: reject, revalidate, or merge."""
+    # Invariant 3: bounded retry
+    if intent.retries >= opts.max_retries:
+        return _reject_max_retries(intent, db_path, opts.max_retries)
+
+    # Invariant 2: revalidate against current M(t)
+    decision = validate_intent(
+        intent, db_path,
+        use_last_simulation=opts.use_last_simulation,
+        skip_checks=opts.skip_checks,
+        config=cfg,
+        cwd=opts.cwd,
+    )
+
+    if decision["decision"] == "blocked":
+        return _handle_blocked_intent(intent, db_path, decision, opts.max_retries)
+
+    # Validated → QUEUED
+    event_log.update_intent_status(db_path, intent.id, Status.QUEUED)
+
+    if opts.auto_confirm:
+        _execute_merge(intent, db_path, decision, opts.cwd)
+
+    return decision
+
+
+def _reject_max_retries(
+    intent: Intent,
+    db_path: str | Path,
+    max_retries: int,
+) -> dict[str, Any]:
+    """Reject an intent that has exceeded the retry limit."""
+    event_log.update_intent_status(db_path, intent.id, Status.REJECTED, retries=intent.retries)
+    event_log.append(db_path, Event(
+        event_type=EventType.INTENT_REJECTED,
+        intent_id=intent.id,
+        tenant_id=intent.tenant_id,
+        payload={"reason": f"Max retries ({max_retries}) exceeded", "retries": intent.retries},
+        evidence={"retries": intent.retries, "max_retries": max_retries},
+    ))
+    return {"intent_id": intent.id, "decision": "rejected", "reason": "max_retries_exceeded"}
+
+
+def _handle_blocked_intent(
+    intent: Intent,
+    db_path: str | Path,
+    decision: dict[str, Any],
+    max_retries: int,
+) -> dict[str, Any]:
+    """Increment retries on a blocked intent; reject if max reached."""
+    new_retries = intent.retries + 1
+    new_status = Status.REJECTED if new_retries >= max_retries else Status.READY
+    event_log.update_intent_status(db_path, intent.id, new_status, retries=new_retries)
+
+    event_type = EventType.INTENT_REJECTED if new_status == Status.REJECTED else EventType.INTENT_REQUEUED
+    event_log.append(db_path, Event(
+        event_type=event_type,
+        intent_id=intent.id,
+        tenant_id=intent.tenant_id,
+        payload={"reason": decision["reason"], "retries": new_retries},
+        evidence={"retries": new_retries},
+    ))
+    decision["retries"] = new_retries
+    return decision
+
+
+def _execute_merge(
+    intent: Intent,
+    db_path: str | Path,
+    decision: dict[str, Any],
+    cwd: str | Path | None,
+) -> None:
+    """Attempt a real merge and record the result."""
+    try:
+        sha = scm.execute_merge(intent.source, intent.target, cwd=cwd)
+    except Exception as e:
+        sha = f"simulated-{intent.id[:8]}"
+        decision["merge_note"] = str(e)
+
+    event_log.update_intent_status(db_path, intent.id, Status.MERGED)
+    event_log.append(db_path, Event(
+        event_type=EventType.INTENT_MERGED,
+        intent_id=intent.id,
+        tenant_id=intent.tenant_id,
+        payload={"merged_commit": sha, "source": intent.source, "target": intent.target},
+        evidence={"merged_commit": sha},
+    ))
+    decision["decision"] = "merged"
+    decision["merged_commit"] = sha
 
 
 # ---------------------------------------------------------------------------

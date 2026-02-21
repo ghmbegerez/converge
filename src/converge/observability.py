@@ -14,6 +14,10 @@ from typing import Any
 
 from fastapi import FastAPI, Request, Response
 
+# --- Metrics constants ---
+_HTTP_ERROR_THRESHOLD = 500
+_MS_PER_SECOND = 1000
+
 
 # ---------------------------------------------------------------------------
 # Structured JSON logging
@@ -102,7 +106,7 @@ def record_request(method: str, path: str, status: int, duration: float) -> None
     _request_count[(method, path, str(status))] += 1
     _request_latency_sum[(method, path)] += duration
     _request_latency_count[(method, path)] += 1
-    if status >= 500:
+    if status >= _HTTP_ERROR_THRESHOLD:
         _error_count[(method, path)] += 1
 
 
@@ -165,12 +169,12 @@ def add_observability_middleware(app: FastAPI) -> None:
         logger = logging.getLogger("converge.access")
         logger.info(
             "%s %s %d %.0fms",
-            method, path, status, duration * 1000,
+            method, path, status, duration * _MS_PER_SECOND,
             extra={
                 "method": method,
                 "path": path,
                 "status_code": status,
-                "duration_ms": round(duration * 1000, 1),
+                "duration_ms": round(duration * _MS_PER_SECOND, 1),
                 "trace_id": request.headers.get("x-trace-id", ""),
             },
         )

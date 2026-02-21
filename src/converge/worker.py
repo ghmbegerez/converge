@@ -59,7 +59,7 @@ class WorkerConfig:
 
     @property
     def github_enabled(self) -> bool:
-        return bool(self.github_app_id and self.github_installation_id)
+        return bool(self.github_app_id)
 
 
 # ---------------------------------------------------------------------------
@@ -170,10 +170,8 @@ class QueueWorker:
             log.exception("Failed to publish results to GitHub")
 
     async def _async_publish(self, results: list[dict[str, Any]]) -> None:
-        """Async batch publish of decisions to GitHub."""
-        from converge.integrations.github_app import publish_decision
-
-        default_installation_id = int(self.config.github_installation_id)
+        """Async batch publish of decisions to GitHub via the unified facade."""
+        from converge.integrations.github_publish import try_publish_decision
 
         async with httpx.AsyncClient() as client:
             for result in results:
@@ -182,41 +180,31 @@ class QueueWorker:
                 if not intent_id or not decision:
                     continue
 
-                # Extract repo info from intent
                 intent = event_log.get_intent(self.config.db_path, intent_id)
                 if not intent:
+                    log.warning("Intent %s not found — skipping GitHub publish", intent_id)
                     continue
                 repo_full = intent.technical.get("repo", "")
                 head_sha = intent.technical.get("initial_base_commit", "")
                 if not repo_full or not head_sha:
+                    log.warning(
+                        "Intent %s missing repo=%r or head_sha=%r — skipping GitHub publish",
+                        intent_id, repo_full, head_sha,
+                    )
                     continue
 
-                parts = repo_full.split("/", 1)
-                if len(parts) != 2:
-                    continue
-                owner, repo = parts
-
-                # Prefer per-intent installation_id (from webhook event),
-                # fall back to global config for legacy/CLI-created intents.
-                installation_id = default_installation_id
-                stored_installation_id = intent.technical.get("installation_id")
-                if stored_installation_id not in (None, ""):
-                    try:
-                        installation_id = int(stored_installation_id)
-                    except (TypeError, ValueError):
-                        pass
-
-                await publish_decision(
-                    owner=owner,
-                    repo=repo,
-                    installation_id=installation_id,
+                await try_publish_decision(
+                    repo_full_name=repo_full,
                     head_sha=head_sha,
                     intent_id=intent_id,
                     decision=decision,
                     trace_id=result.get("trace_id", ""),
                     risk_score=result.get("risk", {}).get("risk_score", 0.0),
                     reason=result.get("reason", ""),
+                    installation_id=intent.technical.get("installation_id"),
+                    fallback_installation_id=self.config.github_installation_id,
                     client=client,
+                    db_path=self.config.db_path,
                 )
 
     def _shutdown(self) -> None:
@@ -230,7 +218,7 @@ class QueueWorker:
         try:
             event_log.force_release_queue_lock(self.config.db_path)
         except Exception:
-            pass
+            log.debug("Could not release queue lock during shutdown")
 
         event_log.append(self.config.db_path, Event(
             event_type=EventType.WORKER_STOPPED,

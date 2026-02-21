@@ -13,7 +13,7 @@ from urllib.error import HTTPError
 import pytest
 
 from converge import event_log
-from converge.server import _authorize_request, _verify_github_signature
+from converge.api.auth import _authorize_request, _verify_github_signature
 
 
 # ---------------------------------------------------------------------------
@@ -276,7 +276,7 @@ class TestWebhook:
                 "pull_request": {
                     "number": 42,
                     "title": "Add feature",
-                    "head": {"ref": "feature/x"},
+                    "head": {"ref": "feature/x", "sha": "abc456def789"},
                     "base": {"ref": "main", "sha": "abc123"},
                 },
             }
@@ -298,7 +298,7 @@ class TestWebhook:
                     "pull_request": {
                         "number": 1,
                         "title": "Init",
-                        "head": {"ref": "feature/init"},
+                        "head": {"ref": "feature/init", "sha": "sha001002003"},
                         "base": {"ref": "main", "sha": "000"},
                     },
                 }
@@ -316,7 +316,7 @@ class TestWebhook:
                 "pull_request": {
                     "number": 99,
                     "title": "Dup test",
-                    "head": {"ref": "feature/dup"},
+                    "head": {"ref": "feature/dup", "sha": "dup999888777"},
                     "base": {"ref": "main", "sha": "def456"},
                 },
             }
@@ -338,7 +338,7 @@ class TestWebhook:
         with patch.dict(os.environ, {"CONVERGE_AUTH_REQUIRED": "1"}):
             payload = {"action": "opened", "repository": {"full_name": "acme/x"},
                        "pull_request": {"number": 1, "title": "t",
-                                        "head": {"ref": "f"}, "base": {"ref": "main", "sha": "0"}}}
+                                        "head": {"ref": "f", "sha": "f00"}, "base": {"ref": "main", "sha": "0"}}}
             body = json.dumps(payload).encode()
             req = Request(
                 f"{live_server}/integrations/github/webhook",

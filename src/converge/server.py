@@ -11,7 +11,6 @@ from converge.api.auth import (  # noqa: F401 — backward compat re-exports
     API_ROLE_MAP,
     ROLE_RANK,
     _authorize_request,
-    _verify_github_signature,
 )
 from converge.models import now_iso
 

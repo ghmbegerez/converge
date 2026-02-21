@@ -12,14 +12,15 @@ import jwt
 import pytest
 
 from converge.integrations.github_app import (
+    _post_check_run,
+    _post_commit_status,
     _token_cache,
-    create_check_run,
-    create_commit_status,
     generate_jwt,
     get_installation_token,
+    is_configured,
     publish_decision,
     reset_token_cache,
-    update_check_run,
+    resolve_installation_id,
 )
 
 
@@ -103,10 +104,7 @@ class TestInstallationToken:
         mock_client.post = AsyncMock(return_value=mock_response)
 
         token = await get_installation_token(
-            42,
-            client=mock_client,
-            app_id="12345",
-            private_key=_TEST_PEM,
+            42, mock_client, app_id="12345", private_key=_TEST_PEM,
         )
         assert token == "ghs_test_token_123"
         mock_client.post.assert_called_once()
@@ -119,11 +117,11 @@ class TestInstallationToken:
 
         # First call fetches
         t1 = await get_installation_token(
-            99, client=mock_client, app_id="12345", private_key=_TEST_PEM,
+            99, mock_client, app_id="12345", private_key=_TEST_PEM,
         )
         # Second call should use cache
         t2 = await get_installation_token(
-            99, client=mock_client, app_id="12345", private_key=_TEST_PEM,
+            99, mock_client, app_id="12345", private_key=_TEST_PEM,
         )
         assert t1 == t2 == "cached_token"
         assert mock_client.post.call_count == 1  # only 1 HTTP call
@@ -138,133 +136,78 @@ class TestInstallationToken:
         mock_client.post = AsyncMock(return_value=mock_response)
 
         token = await get_installation_token(
-            77, client=mock_client, app_id="12345", private_key=_TEST_PEM,
+            77, mock_client, app_id="12345", private_key=_TEST_PEM,
         )
         assert token == "new_token"
         mock_client.post.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
-# Check-run
+# Check-run (internal _post_check_run)
 # ---------------------------------------------------------------------------
 
 class TestCheckRun:
     @pytest.mark.asyncio
-    async def test_create_check_run(self):
-        # Seed token cache to skip JWT exchange
-        _token_cache[1] = ("test_token", time.time() + 3600)
-
+    async def test_post_check_run(self):
         mock_response = _mock_response(200, {"id": 101, "status": "queued"})
         mock_client = AsyncMock(spec=httpx.AsyncClient)
         mock_client.post = AsyncMock(return_value=mock_response)
 
-        result = await create_check_run(
-            owner="acme",
-            repo="myrepo",
-            installation_id=1,
-            head_sha="abc123",
-            status="queued",
-            summary="Test run",
-            client=mock_client,
-            app_id="12345",
-            private_key=_TEST_PEM,
+        result = await _post_check_run(
+            mock_client, "test_token",
+            owner="acme", repo="myrepo",
+            head_sha="abc123", status="queued", summary="Test run",
         )
         assert result["id"] == 101
-
-        # Verify correct URL called
         call_args = mock_client.post.call_args
         assert "/repos/acme/myrepo/check-runs" in str(call_args)
 
     @pytest.mark.asyncio
-    async def test_create_check_run_completed(self):
-        _token_cache[1] = ("test_token", time.time() + 3600)
-
+    async def test_post_check_run_completed(self):
         mock_response = _mock_response(200, {"id": 102, "status": "completed", "conclusion": "success"})
         mock_client = AsyncMock(spec=httpx.AsyncClient)
         mock_client.post = AsyncMock(return_value=mock_response)
 
-        result = await create_check_run(
-            owner="acme",
-            repo="myrepo",
-            installation_id=1,
-            head_sha="abc123",
-            status="completed",
-            conclusion="success",
-            summary="All good",
-            client=mock_client,
-            app_id="12345",
-            private_key=_TEST_PEM,
+        result = await _post_check_run(
+            mock_client, "test_token",
+            owner="acme", repo="myrepo",
+            head_sha="abc123", status="completed",
+            conclusion="success", summary="All good",
         )
         assert result["conclusion"] == "success"
 
-    @pytest.mark.asyncio
-    async def test_update_check_run(self):
-        _token_cache[1] = ("test_token", time.time() + 3600)
-
-        mock_response = _mock_response(200, {"id": 101, "status": "completed", "conclusion": "failure"})
-        mock_client = AsyncMock(spec=httpx.AsyncClient)
-        mock_client.patch = AsyncMock(return_value=mock_response)
-
-        result = await update_check_run(
-            owner="acme",
-            repo="myrepo",
-            installation_id=1,
-            check_run_id=101,
-            status="completed",
-            conclusion="failure",
-            client=mock_client,
-            app_id="12345",
-            private_key=_TEST_PEM,
-        )
-        assert result["conclusion"] == "failure"
-
 
 # ---------------------------------------------------------------------------
-# Commit status
+# Commit status (internal _post_commit_status)
 # ---------------------------------------------------------------------------
 
 class TestCommitStatus:
     @pytest.mark.asyncio
-    async def test_create_commit_status(self):
-        _token_cache[1] = ("test_token", time.time() + 3600)
-
+    async def test_post_commit_status(self):
         mock_response = _mock_response(200, {"state": "success", "id": 55})
         mock_client = AsyncMock(spec=httpx.AsyncClient)
         mock_client.post = AsyncMock(return_value=mock_response)
 
-        result = await create_commit_status(
-            owner="acme",
-            repo="myrepo",
-            installation_id=1,
-            sha="def456",
-            state="success",
+        result = await _post_commit_status(
+            mock_client, "test_token",
+            owner="acme", repo="myrepo",
+            sha="def456", state="success",
             description="Validated (risk=12.3)",
-            client=mock_client,
-            app_id="12345",
-            private_key=_TEST_PEM,
         )
         assert result["state"] == "success"
 
     @pytest.mark.asyncio
     async def test_description_truncated(self):
-        _token_cache[1] = ("test_token", time.time() + 3600)
-
         mock_response = _mock_response(200, {"state": "failure"})
         mock_client = AsyncMock(spec=httpx.AsyncClient)
         mock_client.post = AsyncMock(return_value=mock_response)
 
-        await create_commit_status(
-            owner="acme",
-            repo="myrepo",
-            installation_id=1,
-            sha="def456",
-            state="failure",
+        await _post_commit_status(
+            mock_client, "test_token",
+            owner="acme", repo="myrepo",
+            sha="def456", state="failure",
             description="x" * 200,  # exceeds 140 char limit
-            client=mock_client,
-            app_id="12345",
-            private_key=_TEST_PEM,
         )
-        # Verify description was truncated in the request body
         call_args = mock_client.post.call_args
         body = call_args.kwargs.get("json", {})
         assert len(body["description"]) == 140
@@ -284,7 +227,6 @@ class TestPublishDecision:
 
         mock_client = AsyncMock(spec=httpx.AsyncClient)
         mock_client.post = AsyncMock(side_effect=[check_resp, status_resp])
-        mock_client.aclose = AsyncMock()
 
         result = await publish_decision(
             owner="acme",
@@ -296,8 +238,6 @@ class TestPublishDecision:
             trace_id="trace-abc",
             risk_score=15.5,
             client=mock_client,
-            app_id="12345",
-            private_key=_TEST_PEM,
         )
         assert result["decision"] == "validated"
         assert result["check_run_id"] == 200
@@ -312,7 +252,6 @@ class TestPublishDecision:
 
         mock_client = AsyncMock(spec=httpx.AsyncClient)
         mock_client.post = AsyncMock(side_effect=[check_resp, status_resp])
-        mock_client.aclose = AsyncMock()
 
         result = await publish_decision(
             owner="acme",
@@ -323,31 +262,219 @@ class TestPublishDecision:
             decision="blocked",
             reason="Policy blocked: gates [entropy]",
             client=mock_client,
-            app_id="12345",
-            private_key=_TEST_PEM,
         )
         assert result["decision"] == "blocked"
         assert result["commit_status_state"] == "failure"
 
     @pytest.mark.asyncio
-    async def test_publish_handles_error_gracefully(self):
+    async def test_publish_merged(self):
+        """Decision 'merged' → check_run completed/success, commit status success."""
+        _token_cache[1] = ("test_token", time.time() + 3600)
+
+        check_resp = _mock_response(200, {"id": 203})
+        status_resp = _mock_response(200, {"state": "success"})
+        mock_client = AsyncMock(spec=httpx.AsyncClient)
+        mock_client.post = AsyncMock(side_effect=[check_resp, status_resp])
+
+        result = await publish_decision(
+            owner="acme", repo="myrepo", installation_id=1,
+            head_sha="sha-merged", intent_id="acme/myrepo:pr-50",
+            decision="merged", client=mock_client,
+        )
+        assert result["decision"] == "merged"
+        assert result["check_run_id"] == 203
+        assert result["commit_status_state"] == "success"
+        cr_body = mock_client.post.call_args_list[0].kwargs.get("json", {})
+        assert cr_body["status"] == "completed"
+        assert cr_body["conclusion"] == "success"
+
+    @pytest.mark.asyncio
+    async def test_publish_rejected(self):
+        """Decision 'rejected' → check_run completed/failure, commit status failure."""
+        _token_cache[1] = ("test_token", time.time() + 3600)
+
+        check_resp = _mock_response(200, {"id": 204})
+        status_resp = _mock_response(200, {"state": "failure"})
+        mock_client = AsyncMock(spec=httpx.AsyncClient)
+        mock_client.post = AsyncMock(side_effect=[check_resp, status_resp])
+
+        result = await publish_decision(
+            owner="acme", repo="myrepo", installation_id=1,
+            head_sha="sha-rejected", intent_id="acme/myrepo:pr-60",
+            decision="rejected", reason="Max retries exceeded",
+            client=mock_client,
+        )
+        assert result["decision"] == "rejected"
+        assert result["commit_status_state"] == "failure"
+        cr_body = mock_client.post.call_args_list[0].kwargs.get("json", {})
+        assert cr_body["conclusion"] == "failure"
+
+    @pytest.mark.asyncio
+    async def test_publish_pending(self):
+        """Decision 'pending' → check_run in_progress (no conclusion), commit status pending."""
+        _token_cache[1] = ("test_token", time.time() + 3600)
+
+        check_resp = _mock_response(200, {"id": 205})
+        status_resp = _mock_response(200, {"state": "pending"})
+        mock_client = AsyncMock(spec=httpx.AsyncClient)
+        mock_client.post = AsyncMock(side_effect=[check_resp, status_resp])
+
+        result = await publish_decision(
+            owner="acme", repo="myrepo", installation_id=1,
+            head_sha="sha-pending", intent_id="acme/myrepo:pr-70",
+            decision="pending", reason="Re-push detected, revalidating",
+            client=mock_client,
+        )
+        assert result["decision"] == "pending"
+        assert result["commit_status_state"] == "pending"
+        cr_body = mock_client.post.call_args_list[0].kwargs.get("json", {})
+        assert cr_body["status"] == "in_progress"
+        assert "conclusion" not in cr_body
+
+    @pytest.mark.asyncio
+    async def test_publish_raises_on_api_error(self):
+        """publish_decision propagates exceptions — callers handle errors."""
         _token_cache[1] = ("test_token", time.time() + 3600)
 
         mock_client = AsyncMock(spec=httpx.AsyncClient)
         mock_client.post = AsyncMock(side_effect=httpx.HTTPStatusError(
             "Server error", request=MagicMock(), response=MagicMock(status_code=500),
         ))
-        mock_client.aclose = AsyncMock()
 
-        result = await publish_decision(
-            owner="acme",
-            repo="myrepo",
-            installation_id=1,
-            head_sha="sha789",
-            intent_id="test-1",
-            decision="validated",
-            client=mock_client,
-            app_id="12345",
-            private_key=_TEST_PEM,
-        )
-        assert result["error"] == "publish_failed"
+        with pytest.raises(httpx.HTTPStatusError):
+            await publish_decision(
+                owner="acme",
+                repo="myrepo",
+                installation_id=1,
+                head_sha="sha789",
+                intent_id="test-1",
+                decision="validated",
+                client=mock_client,
+            )
+
+
+# ---------------------------------------------------------------------------
+# Shared helpers
+# ---------------------------------------------------------------------------
+
+class TestIsConfigured:
+    def test_configured_when_app_id_set(self):
+        with patch.dict(os.environ, {"CONVERGE_GITHUB_APP_ID": "123"}):
+            assert is_configured() is True
+
+    def test_not_configured_when_app_id_missing(self):
+        with patch.dict(os.environ, {}, clear=True):
+            os.environ.pop("CONVERGE_GITHUB_APP_ID", None)
+            assert is_configured() is False
+
+
+class TestResolveInstallationId:
+    def test_per_intent_preferred(self):
+        assert resolve_installation_id(77777, 999) == 77777
+
+    def test_fallback_when_per_intent_none(self):
+        assert resolve_installation_id(None, 999) == 999
+
+    def test_fallback_when_per_intent_empty(self):
+        assert resolve_installation_id("", 999) == 999
+
+    def test_fallback_when_per_intent_invalid(self):
+        assert resolve_installation_id("not-a-number", 999) == 999
+
+    def test_env_var_when_no_explicit_values(self):
+        with patch.dict(os.environ, {"CONVERGE_GITHUB_INSTALLATION_ID": "555"}):
+            assert resolve_installation_id() == 555
+
+    def test_zero_when_nothing_valid(self):
+        with patch.dict(os.environ, {}, clear=True):
+            os.environ.pop("CONVERGE_GITHUB_INSTALLATION_ID", None)
+            assert resolve_installation_id() == 0
+
+    def test_negative_rejected(self):
+        assert resolve_installation_id(-5, -10) == 0
+
+    def test_string_numeric_accepted(self):
+        assert resolve_installation_id("42") == 42
+
+
+# ---------------------------------------------------------------------------
+# Publish mode
+# ---------------------------------------------------------------------------
+
+class TestPublishMode:
+    @pytest.mark.asyncio
+    async def test_checks_only_skips_commit_status(self):
+        """publish_mode=checks: only creates check-run, not commit status."""
+        _token_cache[1] = ("test_token", time.time() + 3600)
+
+        check_resp = _mock_response(200, {"id": 300})
+        mock_client = AsyncMock(spec=httpx.AsyncClient)
+        mock_client.post = AsyncMock(return_value=check_resp)
+
+        with patch.dict(os.environ, {"CONVERGE_GITHUB_PUBLISH_MODE": "checks"}):
+            result = await publish_decision(
+                owner="acme", repo="myrepo", installation_id=1,
+                head_sha="sha-mode", intent_id="mode-test",
+                decision="validated", client=mock_client,
+            )
+        assert result["check_run_id"] == 300
+        assert "commit_status_state" not in result
+        assert mock_client.post.call_count == 1  # only check-run
+
+    @pytest.mark.asyncio
+    async def test_status_only_skips_check_run(self):
+        """publish_mode=status: only creates commit status, not check-run."""
+        _token_cache[1] = ("test_token", time.time() + 3600)
+
+        status_resp = _mock_response(200, {"state": "success"})
+        mock_client = AsyncMock(spec=httpx.AsyncClient)
+        mock_client.post = AsyncMock(return_value=status_resp)
+
+        with patch.dict(os.environ, {"CONVERGE_GITHUB_PUBLISH_MODE": "status"}):
+            result = await publish_decision(
+                owner="acme", repo="myrepo", installation_id=1,
+                head_sha="sha-mode", intent_id="mode-test",
+                decision="validated", client=mock_client,
+            )
+        assert "check_run_id" not in result
+        assert result["commit_status_state"] == "success"
+        assert mock_client.post.call_count == 1  # only commit status
+
+    @pytest.mark.asyncio
+    async def test_both_publishes_both(self):
+        """publish_mode=both (default): creates check-run AND commit status."""
+        _token_cache[1] = ("test_token", time.time() + 3600)
+
+        check_resp = _mock_response(200, {"id": 301})
+        status_resp = _mock_response(200, {"state": "success"})
+        mock_client = AsyncMock(spec=httpx.AsyncClient)
+        mock_client.post = AsyncMock(side_effect=[check_resp, status_resp])
+
+        with patch.dict(os.environ, {"CONVERGE_GITHUB_PUBLISH_MODE": "both"}):
+            result = await publish_decision(
+                owner="acme", repo="myrepo", installation_id=1,
+                head_sha="sha-mode", intent_id="mode-test",
+                decision="validated", client=mock_client,
+            )
+        assert result["check_run_id"] == 301
+        assert result["commit_status_state"] == "success"
+        assert mock_client.post.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_invalid_mode_defaults_to_both(self):
+        """Invalid publish mode falls back to 'both'."""
+        _token_cache[1] = ("test_token", time.time() + 3600)
+
+        check_resp = _mock_response(200, {"id": 302})
+        status_resp = _mock_response(200, {"state": "success"})
+        mock_client = AsyncMock(spec=httpx.AsyncClient)
+        mock_client.post = AsyncMock(side_effect=[check_resp, status_resp])
+
+        with patch.dict(os.environ, {"CONVERGE_GITHUB_PUBLISH_MODE": "garbage"}):
+            result = await publish_decision(
+                owner="acme", repo="myrepo", installation_id=1,
+                head_sha="sha-mode", intent_id="mode-test",
+                decision="validated", client=mock_client,
+            )
+        assert result["check_run_id"] == 302
+        assert mock_client.post.call_count == 2

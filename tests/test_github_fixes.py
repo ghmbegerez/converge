@@ -78,14 +78,15 @@ class TestWorkerHttpxImport:
         event_log.upsert_intent(db_path, intent)
 
         mock_pub = AsyncMock()
-        with patch("converge.integrations.github_app.publish_decision", mock_pub):
-            asyncio.run(worker._async_publish([
-                {"intent_id": "worker-pub-test", "decision": "validated"},
-            ]))
-            assert mock_pub.called
-            call_kwargs = mock_pub.call_args.kwargs
-            assert call_kwargs["installation_id"] == 77777, \
-                "Worker should use per-intent installation_id (77777), not global (999)"
+        with patch.dict(os.environ, {"CONVERGE_GITHUB_APP_ID": "123"}):
+            with patch("converge.integrations.github_app.publish_decision", mock_pub):
+                asyncio.run(worker._async_publish([
+                    {"intent_id": "worker-pub-test", "decision": "validated"},
+                ]))
+                assert mock_pub.called
+                call_kwargs = mock_pub.call_args.kwargs
+                assert call_kwargs["installation_id"] == 77777, \
+                    "Worker should use per-intent installation_id (77777), not global (999)"
 
     def test_worker_publish_invalid_installation_id_falls_back(self, db_path):
         """Invalid per-intent installation_id falls back to global config."""
@@ -114,14 +115,15 @@ class TestWorkerHttpxImport:
         event_log.upsert_intent(db_path, intent)
 
         mock_pub = AsyncMock()
-        with patch("converge.integrations.github_app.publish_decision", mock_pub):
-            asyncio.run(worker._async_publish([
-                {"intent_id": "worker-pub-bad-id", "decision": "validated"},
-            ]))
-            assert mock_pub.called
-            call_kwargs = mock_pub.call_args.kwargs
-            assert call_kwargs["installation_id"] == 999, \
-                "Should fall back to global config when per-intent value is invalid"
+        with patch.dict(os.environ, {"CONVERGE_GITHUB_APP_ID": "123"}):
+            with patch("converge.integrations.github_app.publish_decision", mock_pub):
+                asyncio.run(worker._async_publish([
+                    {"intent_id": "worker-pub-bad-id", "decision": "validated"},
+                ]))
+                assert mock_pub.called
+                call_kwargs = mock_pub.call_args.kwargs
+                assert call_kwargs["installation_id"] == 999, \
+                    "Should fall back to global config when per-intent value is invalid"
 
 
 # ---------------------------------------------------------------------------
@@ -286,7 +288,7 @@ class TestPerIntentInstallationId:
 
     def test_try_publish_decision_uses_intent_installation_id(self):
         """_try_publish_decision prefers the passed installation_id over ENV."""
-        from converge.api.routers.webhooks import _try_publish_decision
+        from converge.integrations.github_publish import try_publish_decision as _try_publish_decision
         import asyncio
 
         mock_pub = AsyncMock()
@@ -374,3 +376,79 @@ class TestWebhookRateLimitExempt:
                 server.should_exit = True
                 thread.join(timeout=5)
                 reset_limiter()
+
+
+# ---------------------------------------------------------------------------
+# Webhook payload size limit
+# ---------------------------------------------------------------------------
+
+@pytest.mark.integration
+class TestWebhookPayloadLimit:
+    def test_oversized_payload_returns_413(self, live_server):
+        """Payload exceeding max size returns 413."""
+        oversized = json.dumps({"data": "x" * (1048576 + 1)}).encode()
+        req = Request(
+            f"{live_server}/integrations/github/webhook",
+            data=oversized,
+            headers={
+                "Content-Type": "application/json",
+                "X-GitHub-Event": "ping",
+                "X-GitHub-Delivery": "d-oversize-1",
+            },
+            method="POST",
+        )
+        try:
+            urlopen(req)
+            pytest.fail("Should have returned 413")
+        except HTTPError as e:
+            assert e.code == 413
+
+    def test_normal_payload_accepted(self, live_server):
+        """Normal-sized payload passes size check."""
+        result = _webhook(
+            f"{live_server}/integrations/github/webhook",
+            "ping",
+            {"zen": "normal payload"},
+            delivery_id="d-normal-size",
+        )
+        assert result.get("ok") is True
+
+
+# ---------------------------------------------------------------------------
+# list_intents source filter (Gap 2: push O(n) → indexed query)
+# ---------------------------------------------------------------------------
+
+def test_list_intents_source_filter(db_path):
+    """list_intents(source=...) filters at DB level, not Python-side."""
+    intent_a = Intent(
+        id="repo:pr-1",
+        source="feature/alpha",
+        target="main",
+        status=Status.READY,
+        created_by="test",
+        technical={"repo": "acme/app"},
+    )
+    intent_b = Intent(
+        id="repo:pr-2",
+        source="feature/beta",
+        target="main",
+        status=Status.READY,
+        created_by="test",
+        technical={"repo": "acme/app"},
+    )
+    event_log.upsert_intent(db_path, intent_a)
+    event_log.upsert_intent(db_path, intent_b)
+
+    # Filter by source=feature/alpha → only intent_a
+    results = event_log.list_intents(db_path, status=Status.READY.value, source="feature/alpha")
+    assert len(results) == 1
+    assert results[0].id == "repo:pr-1"
+
+    # Filter by source=feature/beta → only intent_b
+    results = event_log.list_intents(db_path, status=Status.READY.value, source="feature/beta")
+    assert len(results) == 1
+    assert results[0].id == "repo:pr-2"
+
+    # No filter → both
+    results = event_log.list_intents(db_path, status=Status.READY.value)
+    assert len(results) == 2

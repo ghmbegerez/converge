@@ -9,6 +9,48 @@ import networkx as nx
 from converge.models import Intent, Simulation
 from converge.risk._constants import _CORE_PATHS, _CORE_TARGETS, _RISK_BONUS
 
+# --- Entropic load weights ---
+_EL_FILES = 2.0
+_EL_CONFLICTS = 15.0
+_EL_DEPS = 6.0
+_EL_DIR_SPREAD = 3.0
+_EL_COMPONENTS = 5.0
+
+# --- Contextual value weights ---
+_CV_IMPORTANCE_SCALE = 30.0
+_CV_IMPORTANCE_CAP = 60.0
+_CV_CORE_RATIO = 20.0
+_CV_TARGET_BONUS = 10.0
+
+# --- Complexity delta weights ---
+_CD_DENSITY = 40.0
+_CD_EDGE_RATIO_SCALE = 10.0
+_CD_EDGE_RATIO_CAP = 30.0
+_CD_CROSS_DIR = 3.0
+_CD_SCOPE = 5.0
+
+# --- Path dependence weights ---
+_PD_CONFLICTS = 20.0
+_PD_CORE_TOUCHES = 4.0
+_PD_DEPS = 8.0
+_PD_CYCLES = 5.0
+_PD_LONGEST_PATH = 2.0
+_PD_CYCLE_CAP = 20
+
+_SCORE_MAX = 100.0
+_SCORE_PRECISION = 1
+
+
+def _clamp_score(raw: float) -> float:
+    """Clamp a raw signal score to [0, 100] with standard precision."""
+    return min(_SCORE_MAX, round(raw, _SCORE_PRECISION))
+
+
+def _count_core_touches(simulation: Simulation) -> int:
+    """Count files in core paths (high-contention areas)."""
+    return sum(1 for f in simulation.files_changed
+               if any(f.startswith(cp) for cp in _CORE_PATHS))
+
 
 def compute_entropic_load(
     intent: Intent,
@@ -38,13 +80,13 @@ def compute_entropic_load(
 
     # Weighted sum, normalized to 0-100
     raw = (
-        files_count * 2.0 +
-        conflict_count * 15.0 +
-        deps_count * 6.0 +
-        dir_spread * 3.0 +
-        (n_components - 1) * 5.0
+        files_count * _EL_FILES +
+        conflict_count * _EL_CONFLICTS +
+        deps_count * _EL_DEPS +
+        dir_spread * _EL_DIR_SPREAD +
+        (n_components - 1) * _EL_COMPONENTS
     )
-    return min(100.0, round(raw, 1))
+    return _clamp_score(raw)
 
 
 def compute_contextual_value(
@@ -72,20 +114,19 @@ def compute_contextual_value(
     importance_ratio = file_pr_sum / (expected_per_file * max(len(simulation.files_changed), 1))
 
     # Core path bonus
-    core_touches = sum(1 for f in simulation.files_changed
-                       if any(f.startswith(cp) for cp in _CORE_PATHS))
+    core_touches = _count_core_touches(simulation)
     core_ratio = core_touches / max(len(simulation.files_changed), 1)
 
     # Target branch bonus
-    target_bonus = 10.0 if intent.target in _CORE_TARGETS else 0.0
+    target_bonus = _CV_TARGET_BONUS if intent.target in _CORE_TARGETS else 0.0
 
     raw = (
-        min(importance_ratio * 30.0, 60.0) +
-        core_ratio * 20.0 +
+        min(importance_ratio * _CV_IMPORTANCE_SCALE, _CV_IMPORTANCE_CAP) +
+        core_ratio * _CV_CORE_RATIO +
         target_bonus +
         _RISK_BONUS.get(intent.risk_level.value, 5)
     )
-    return min(100.0, round(raw, 1))
+    return _clamp_score(raw)
 
 
 def compute_complexity_delta(
@@ -119,12 +160,12 @@ def compute_complexity_delta(
     scope_count = len(intent.technical.get("scope_hint", []))
 
     raw = (
-        density * 40.0 +
-        min(edge_node_ratio * 10.0, 30.0) +
-        cross_dir * 3.0 +
-        scope_count * 5.0
+        density * _CD_DENSITY +
+        min(edge_node_ratio * _CD_EDGE_RATIO_SCALE, _CD_EDGE_RATIO_CAP) +
+        cross_dir * _CD_CROSS_DIR +
+        scope_count * _CD_SCOPE
     )
-    return min(100.0, round(raw, 1))
+    return _clamp_score(raw)
 
 
 def compute_path_dependence(
@@ -143,8 +184,7 @@ def compute_path_dependence(
     deps_count = len(intent.dependencies)
 
     # Files likely to collide with others (core paths)
-    core_touches = sum(1 for f in simulation.files_changed
-                       if any(f.startswith(cp) for cp in _CORE_PATHS))
+    core_touches = _count_core_touches(simulation)
 
     # Cycles in the graph (circular dependencies) — cap enumeration
     cycle_count = 0
@@ -153,7 +193,7 @@ def compute_path_dependence(
             for cycle in nx.simple_cycles(G):
                 if len(cycle) >= 2:
                     cycle_count += 1
-                if cycle_count >= 20:
+                if cycle_count >= _PD_CYCLE_CAP:
                     break
     except Exception:  # noqa: BLE001 — cap cycle enumeration on any graph error
         pass
@@ -168,10 +208,10 @@ def compute_path_dependence(
         longest = 0
 
     raw = (
-        conflict_count * 20.0 +
-        core_touches * 4.0 +
-        deps_count * 8.0 +
-        cycle_count * 5.0 +
-        longest * 2.0
+        conflict_count * _PD_CONFLICTS +
+        core_touches * _PD_CORE_TOUCHES +
+        deps_count * _PD_DEPS +
+        cycle_count * _PD_CYCLES +
+        longest * _PD_LONGEST_PATH
     )
-    return min(100.0, round(raw, 1))
+    return _clamp_score(raw)

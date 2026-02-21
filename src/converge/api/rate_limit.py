@@ -76,6 +76,7 @@ def reset_limiter() -> None:
 # ---------------------------------------------------------------------------
 
 _EXEMPT_PREFIXES = ("/health", "/metrics", "/integrations/github")
+_TENANT_KEY_SLICE = 8           # characters of API key used as tenant fallback
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
@@ -92,7 +93,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         tenant = request.headers.get("x-tenant-id", "_anonymous")
         # Also check x-api-key to resolve tenant (lightweight, no full auth)
         if tenant == "_anonymous":
-            tenant = request.headers.get("x-api-key", "_anonymous")[:8] if request.headers.get("x-api-key") else "_anonymous"
+            tenant = request.headers.get("x-api-key", "_anonymous")[:_TENANT_KEY_SLICE] if request.headers.get("x-api-key") else "_anonymous"
 
         if not limiter.is_allowed(tenant):
             return JSONResponse(

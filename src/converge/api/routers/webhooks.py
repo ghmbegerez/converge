@@ -10,79 +10,45 @@ Handles:
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import os
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import JSONResponse
 
 from converge import event_log
 from converge.api.auth import _auth_required, _verify_github_signature
+from converge.integrations.github_publish import try_publish_decision
 from converge.models import Event, EventType, Intent, Status
 
 log = logging.getLogger("converge.webhooks")
 
+# --- Display constants ---
+_SHA_DISPLAY_LEN = 12           # characters of SHA shown in intent IDs
+
 router = APIRouter(tags=["webhooks"])
 
-
-def _github_enabled() -> bool:
-    """Check whether GitHub App integration is configured."""
-    return bool(
-        os.environ.get("CONVERGE_GITHUB_APP_ID")
-        and os.environ.get("CONVERGE_GITHUB_INSTALLATION_ID")
-    )
-
-
-async def _try_publish_decision(
-    repo_full_name: str,
-    head_sha: str,
-    intent_id: str,
-    decision: str,
-    trace_id: str = "",
-    risk_score: float = 0.0,
-    reason: str = "",
-    installation_id: int | None = None,
-) -> None:
-    """Best-effort publish a decision to GitHub. Never raises.
-
-    ``installation_id`` — prefer the value stored in the intent (from the
-    webhook event).  Falls back to the global ENV var.
-    """
-    if not _github_enabled():
-        return
+def _parse_max_body() -> int:
+    """Parse CONVERGE_WEBHOOK_MAX_BODY_BYTES safely; default 1 MiB."""
+    raw = os.environ.get("CONVERGE_WEBHOOK_MAX_BODY_BYTES", "1048576")
     try:
-        from converge.integrations.github_app import publish_decision
+        return int(raw)
+    except (TypeError, ValueError):
+        return 1048576
 
-        parts = repo_full_name.split("/", 1)
-        if len(parts) != 2:
-            return
-        owner, repo = parts
-        resolved_id = installation_id or int(
-            os.environ.get("CONVERGE_GITHUB_INSTALLATION_ID", "0")
-        )
-
-        await publish_decision(
-            owner=owner,
-            repo=repo,
-            installation_id=resolved_id,
-            head_sha=head_sha,
-            intent_id=intent_id,
-            decision=decision,
-            trace_id=trace_id,
-            risk_score=risk_score,
-            reason=reason,
-        )
-    except Exception:
-        log.debug("Failed to publish decision to GitHub", exc_info=True)
+_MAX_WEBHOOK_BODY = _parse_max_body()
 
 
 @router.post("/integrations/github/webhook")
 async def github_webhook(request: Request):
     """Receive and process GitHub webhook deliveries."""
+    content_length = request.headers.get("content-length")
+    if content_length and int(content_length) > _MAX_WEBHOOK_BODY:
+        raise HTTPException(status_code=413, detail="Payload too large")
     body = await request.body()
+    if len(body) > _MAX_WEBHOOK_BODY:
+        raise HTTPException(status_code=413, detail="Payload too large")
     headers = {k.lower(): v for k, v in request.headers.items()}
 
     sig = headers.get("x-hub-signature-256", "")
@@ -98,6 +64,7 @@ async def github_webhook(request: Request):
                 status_code=403,
                 detail="Webhook signature verification not configured",
             )
+        log.warning("Webhook accepted without signature verification (no secret configured)")
     elif not _verify_github_signature(webhook_secret, body, sig):
         raise HTTPException(status_code=401, detail="Invalid signature")
 
@@ -165,6 +132,10 @@ async def _handle_pr_opened(
     source = pr.get("head", {}).get("ref", "")
     target = pr.get("base", {}).get("ref", "main")
     head_sha = pr.get("head", {}).get("sha", "")
+
+    if not head_sha or not source:
+        return {"ok": True, "intent_id": intent_id, "action": "ignored", "reason": "missing_head_sha_or_ref"}
+
     tenant = os.environ.get("CONVERGE_GITHUB_DEFAULT_TENANT")
 
     intent = Intent(
@@ -192,14 +163,14 @@ async def _handle_pr_opened(
         payload=intent.to_dict(),
     ))
 
-    # Publish "pending" check-run so GitHub UI shows Converge is processing
     event_installation_id = data.get("installation", {}).get("id")
-    await _try_publish_decision(
+    await try_publish_decision(
         repo_full_name=repo_full_name,
         head_sha=head_sha,
         intent_id=intent_id,
         decision="pending",
         installation_id=event_installation_id,
+        db_path=db_path,
     )
 
     return {"ok": True, "intent_id": intent_id, "action": "created"}
@@ -222,6 +193,7 @@ async def _handle_pr_closed(
 
     intent = event_log.get_intent(db_path, intent_id)
     if intent is None:
+        log.warning("PR closed but no intent found: %s — check-run will not be updated", intent_id)
         return {"ok": True, "intent_id": intent_id, "action": "ignored", "reason": "unknown_intent"}
 
     if merged:
@@ -247,15 +219,15 @@ async def _handle_pr_closed(
         },
     ))
 
-    # Publish final status to GitHub (prefer per-intent installation_id)
     stored_installation_id = intent.technical.get("installation_id")
-    await _try_publish_decision(
+    await try_publish_decision(
         repo_full_name=repo_full_name,
         head_sha=head_sha,
         intent_id=intent_id,
         decision=decision,
         reason="PR closed" if not merged else "PR merged",
         installation_id=stored_installation_id,
+        db_path=db_path,
     )
 
     return {"ok": True, "intent_id": intent_id, "action": decision}
@@ -279,14 +251,12 @@ async def _handle_push(
     repo_full_name = data.get("repository", {}).get("full_name", "")
     head_sha = data.get("after", "")
 
-    # Find open intents with this branch as source AND matching repo
     revalidated = []
     for status_val in (Status.READY.value, Status.VALIDATED.value):
-        intents = event_log.list_intents(db_path, status=status_val)
+        intents = event_log.list_intents(db_path, status=status_val, source=branch)
         for intent in intents:
             intent_repo = intent.technical.get("repo", "")
-            if intent.source == branch and (not intent_repo or intent_repo == repo_full_name):
-                # Update head SHA and reset to READY
+            if not intent_repo or intent_repo == repo_full_name:
                 intent.technical["initial_base_commit"] = head_sha
                 event_log.upsert_intent(db_path, intent)
                 if intent.status != Status.READY:
@@ -303,13 +273,14 @@ async def _handle_push(
                 ))
                 revalidated.append(intent.id)
 
-                await _try_publish_decision(
+                await try_publish_decision(
                     repo_full_name=repo_full_name,
                     head_sha=head_sha,
                     intent_id=intent.id,
                     decision="pending",
                     reason="Re-push detected, revalidating",
                     installation_id=intent.technical.get("installation_id"),
+                    db_path=db_path,
                 )
 
     return {"ok": True, "action": "push_processed", "revalidated": revalidated}
@@ -332,7 +303,7 @@ async def _handle_merge_group(
     if not head_sha or not repo_full_name:
         return {"ok": True, "action": "ignored", "reason": "incomplete_payload"}
 
-    intent_id = f"{repo_full_name}:mg-{head_sha[:12]}"
+    intent_id = f"{repo_full_name}:mg-{head_sha[:_SHA_DISPLAY_LEN]}"
 
     if action == "checks_requested":
         return await _handle_merge_group_checks_requested(
@@ -357,7 +328,6 @@ async def _handle_merge_group_checks_requested(
 ) -> dict[str, Any]:
     """Create intent when a PR enters GitHub's merge queue."""
     base_ref = merge_group.get("base_ref", "main")
-    # Strip refs/heads/ prefix if present
     if base_ref.startswith("refs/heads/"):
         base_ref = base_ref[len("refs/heads/"):]
     head_ref = merge_group.get("head_ref", "")
@@ -393,13 +363,14 @@ async def _handle_merge_group_checks_requested(
     ))
 
     event_installation_id = data.get("installation", {}).get("id")
-    await _try_publish_decision(
+    await try_publish_decision(
         repo_full_name=repo_full_name,
         head_sha=head_sha,
         intent_id=intent_id,
         decision="pending",
         reason="Merge queue entry — validation starting",
         installation_id=event_installation_id,
+        db_path=db_path,
     )
 
     return {"ok": True, "intent_id": intent_id, "action": "merge_group_checks_requested"}
@@ -433,13 +404,14 @@ async def _handle_merge_group_destroyed(
     ))
 
     head_sha = merge_group.get("head_sha", "")
-    await _try_publish_decision(
+    await try_publish_decision(
         repo_full_name=repo_full_name,
         head_sha=head_sha,
         intent_id=intent_id,
         decision="rejected",
         reason=f"Merge group destroyed: {reason}",
         installation_id=intent.technical.get("installation_id"),
+        db_path=db_path,
     )
 
     return {"ok": True, "intent_id": intent_id, "action": "merge_group_destroyed"}

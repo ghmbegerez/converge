@@ -12,6 +12,7 @@ This module is now a **facade**: all persistence is delegated to a
 from __future__ import annotations
 
 import os
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -20,16 +21,23 @@ from converge.models import Event, Intent, RiskLevel, Status, new_id, now_iso  #
 from converge.ports import ConvergeStore
 
 # ---------------------------------------------------------------------------
-# Store singleton
+# Store singleton (thread-safe)
 # ---------------------------------------------------------------------------
 
 _store: ConvergeStore | None = None
+_store_lock = threading.Lock()
 
 
 def configure(store: ConvergeStore) -> None:
-    """Set the global store instance (useful for tests and startup)."""
+    """Set the global store instance (useful for tests and startup).
+
+    Closes the previous store (if any) to avoid leaked connections/pools.
+    """
     global _store
-    _store = store
+    with _store_lock:
+        if _store is not None and _store is not store:
+            _store.close()
+        _store = store
 
 
 def get_store() -> ConvergeStore | None:
@@ -37,16 +45,31 @@ def get_store() -> ConvergeStore | None:
     return _store
 
 
+def close() -> None:
+    """Close and release the global store instance.
+
+    Safe to call multiple times or when no store is configured.
+    """
+    global _store
+    with _store_lock:
+        if _store is not None:
+            _store.close()
+            _store = None
+
+
 def _ensure_store(db_path: str | Path | None = None) -> ConvergeStore:
     """Return the current store, auto-initialising from *db_path* if needed."""
     global _store
     if _store is not None:
         return _store
-    if db_path is None:
-        raise RuntimeError("No store configured and no db_path provided")
-    from converge.adapters.sqlite_store import SqliteStore
-    _store = SqliteStore(db_path)
-    return _store
+    with _store_lock:
+        if _store is not None:
+            return _store
+        if db_path is None:
+            raise RuntimeError("No store configured and no db_path provided")
+        from converge.adapters.sqlite_store import SqliteStore
+        _store = SqliteStore(db_path)
+        return _store
 
 
 # ---------------------------------------------------------------------------
@@ -123,9 +146,12 @@ def list_intents(
     *,
     status: str | None = None,
     tenant_id: str | None = None,
+    source: str | None = None,
     limit: int = 200,
 ) -> list[Intent]:
-    return _ensure_store(db_path).list_intents(status=status, tenant_id=tenant_id, limit=limit)
+    return _ensure_store(db_path).list_intents(
+        status=status, tenant_id=tenant_id, source=source, limit=limit,
+    )
 
 
 def update_intent_status(db_path: str | Path, intent_id: str, status: Status, retries: int | None = None) -> None:
