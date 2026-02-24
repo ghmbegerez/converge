@@ -172,6 +172,384 @@ The response contains the new key. Update `CONVERGE_API_KEYS` env var with the n
 | `CONVERGE_WORKER_MAX_RETRIES` | `3` | Max retries before intent rejected |
 | `CONVERGE_WORKER_TARGET` | `main` | Target branch for queue processing |
 | `CONVERGE_WORKER_AUTO_CONFIRM` | `0` | Auto-confirm merges (`1` = yes) |
+| `CONVERGE_FF_<FLAG_NAME>` | — | Override feature flag (`1`/`true` = enable) |
+| `CONVERGE_FF_<FLAG_NAME>_MODE` | — | Override flag mode (`shadow`/`enforce`) |
+
+## Verification Debt Management (Phase 5)
+
+### Check debt score
+
+```bash
+converge verification debt --db $CONVERGE_DB_PATH
+```
+
+Output includes:
+- **debt_score** (0-100): composite score
+- **staleness_score**: fraction of stale intents (> 24h)
+- **queue_pressure_score**: active intents vs capacity
+- **review_backlog_score**: pending reviews vs threshold
+- **conflict_pressure_score**: merge (70%) + semantic (30%) conflict rate
+- **retry_pressure_score**: retried intents ratio
+- **status**: green (0-30), yellow (30-70), red (70-100)
+
+### Reducing debt
+
+| Factor | Action |
+|---|---|
+| High staleness | Process or reject old intents |
+| High queue pressure | Increase capacity or pause intake |
+| High review backlog | Assign reviewers, escalate overdue |
+| High conflict rate | Resolve semantic conflicts, investigate merge failures |
+| High retry pressure | Investigate failing intents, check CI status |
+
+### API endpoint
+
+```
+GET /api/verification/debt           — current debt snapshot
+GET /api/verification/debt?tenant_id=X  — tenant-scoped
+```
+
+---
+
+## Review Task Escalation (Phase 6)
+
+### Check review backlog
+
+```bash
+converge review list --db $CONVERGE_DB_PATH --status pending
+converge review summary --db $CONVERGE_DB_PATH
+```
+
+### Assign, complete, cancel, escalate
+
+```bash
+converge review assign --db $CONVERGE_DB_PATH --task-id <id> --reviewer <agent>
+converge review complete --db $CONVERGE_DB_PATH --task-id <id> --resolution approved
+converge review cancel --db $CONVERGE_DB_PATH --task-id <id>
+converge review escalate --db $CONVERGE_DB_PATH --task-id <id>
+```
+
+### Check SLA compliance
+
+```bash
+converge review sla-check --db $CONVERGE_DB_PATH
+```
+
+### Escalation criteria
+
+| Condition | Action |
+|---|---|
+| Pending > 4 hours | Auto-assign to available reviewer |
+| Assigned > 8 hours | Escalate to team lead |
+| SLA breach detected | Page on-call + escalate |
+| Backlog > 10 tasks | Switch intake to throttle mode |
+
+### API endpoints
+
+```
+GET  /api/reviews             — list review tasks (filterable by status)
+GET  /api/reviews/summary     — counts by status
+```
+
+---
+
+## Security Finding Triage (Phase 7)
+
+### Check security status
+
+```bash
+converge security summary --db $CONVERGE_DB_PATH
+converge security findings --db $CONVERGE_DB_PATH --severity critical
+converge security findings --db $CONVERGE_DB_PATH --severity high
+```
+
+### Trigger a security scan
+
+```bash
+converge security scan --db $CONVERGE_DB_PATH --intent-id <id>
+```
+
+### Triage workflow
+
+1. Run `security summary` daily
+2. **Critical findings**: Immediate action — block the intent, notify owner
+3. **High findings**: Triage within 4 hours — assess if false positive
+4. **Medium/Low**: Batch review weekly
+
+### Security gate thresholds
+
+The policy engine evaluates security findings as the 4th gate:
+
+| Risk level | Max critical | Max high |
+|---|---|---|
+| low | 0 | 5 |
+| medium | 0 | 2 |
+| high | 0 | 0 |
+| critical | 0 | 0 |
+
+### API endpoints
+
+```
+GET  /api/security/findings        — list findings (filterable)
+GET  /api/security/findings/counts — severity breakdown
+GET  /api/security/scans           — scan history
+GET  /api/security/summary         — dashboard summary
+POST /api/security/scan            — trigger scan (requires operator)
+```
+
+---
+
+## Intake Mode Management (Phase 8)
+
+### Check current mode
+
+```bash
+converge intake status --db $CONVERGE_DB_PATH
+```
+
+### Change intake mode
+
+```bash
+converge intake set-mode --db $CONVERGE_DB_PATH --mode normal
+converge intake set-mode --db $CONVERGE_DB_PATH --mode throttle
+converge intake set-mode --db $CONVERGE_DB_PATH --mode pause
+```
+
+### When to change mode
+
+| Condition | Recommended mode |
+|---|---|
+| Queue healthy, debt < 30 | `normal` |
+| Queue backlog growing, debt 30-70 | `throttle` |
+| Queue overloaded, debt > 70 | `pause` |
+| Incident in progress | `pause` |
+| After incident resolved | `throttle` then `normal` |
+
+### API endpoints
+
+```
+GET  /api/intake/status   — current mode and stats
+POST /api/intake/mode     — set mode (requires operator role)
+```
+
+---
+
+## Semantic Conflict Triage
+
+### View active conflicts
+
+```bash
+converge semantic conflict-list --db $CONVERGE_DB_PATH
+converge semantic conflicts --db $CONVERGE_DB_PATH
+```
+
+### Resolve a conflict
+
+```bash
+converge semantic conflict-resolve --db $CONVERGE_DB_PATH \
+  --conflict-id <id> --resolution "overlapping scope accepted"
+```
+
+### Triage workflow
+
+1. Check `semantic conflict-list` for new conflicts
+2. Inspect the two intents involved
+3. If they can coexist: resolve with reason
+4. If truly conflicting: reject one intent via policy
+5. Check verification debt to see impact: `converge verification debt`
+
+**Escalate if**: > 5 unresolved conflicts for > 24 hours.
+
+---
+
+## Semantic Index Management
+
+### Reindex embeddings
+
+Use when embeddings are stale or similarity model has changed.
+
+```bash
+converge semantic status --db $CONVERGE_DB_PATH
+converge semantic reindex --db $CONVERGE_DB_PATH
+converge semantic status --db $CONVERGE_DB_PATH   # verify
+```
+
+### Index a specific intent
+
+```bash
+converge semantic index --db $CONVERGE_DB_PATH --intent-id <id>
+```
+
+---
+
+## Audit Chain Verification
+
+### Initialize chain
+
+Run once after deployment or database migration.
+
+```bash
+converge audit init-chain --db $CONVERGE_DB_PATH
+```
+
+### Verify chain integrity
+
+```bash
+converge audit verify-chain --db $CONVERGE_DB_PATH
+```
+
+**If invalid**: Chain hash mismatch indicates potential tampering or data corruption.
+1. Check for database restores or manual edits
+2. Re-initialize: `converge audit init-chain`
+
+---
+
+## Feature Flag Operations (Phase 9)
+
+### List all flags
+
+```bash
+curl -s http://localhost:9876/api/flags | jq .
+```
+
+### Toggle a flag at runtime
+
+```bash
+curl -X POST http://localhost:9876/api/flags/security_adapters \
+  -H "Content-Type: application/json" \
+  -d '{"enabled": false}'
+```
+
+### Override via environment
+
+```bash
+export CONVERGE_FF_SECURITY_ADAPTERS=false
+export CONVERGE_FF_SEMANTIC_CONFLICTS_MODE=enforce
+```
+
+### Override via config file
+
+Create `.converge/flags.json`:
+
+```json
+{
+  "security_adapters": false,
+  "semantic_conflicts": {"enabled": true, "mode": "enforce"}
+}
+```
+
+### Flag defaults
+
+| Flag | Default | Mode | Purpose |
+|---|---|---|---|
+| intent_links | enabled | — | Commit-intent link tracking |
+| archaeology_enhanced | enabled | — | Enhanced git history analysis |
+| intent_semantics | enabled | — | Semantic embeddings |
+| origin_policy | enabled | — | Origin-type policy overrides |
+| verification_debt | enabled | — | Debt tracking |
+| review_tasks | enabled | — | Human review workflow |
+| security_adapters | enabled | — | Security scanner integration |
+| intake_control | enabled | — | Adaptive intake throttling |
+| semantic_conflicts | enabled | shadow | Semantic conflict detection |
+| plan_coordination | enabled | — | Plan dependency enforcement |
+| audit_chain | enabled | — | Event tamper-evidence chain |
+| code_ownership | **disabled** | — | Code-area ownership SoD |
+| pre_eval_harness | enabled | shadow | Pre-PR evaluation harness |
+
+**Priority**: env vars > config file > defaults.
+
+---
+
+## Pre-PR Evaluation Harness
+
+### Evaluate an intent before creation
+
+```bash
+converge harness evaluate --db $CONVERGE_DB_PATH \
+  --source feature/x --target main \
+  --description "Add user authentication"
+```
+
+### API evaluation
+
+```bash
+curl -X POST http://localhost:9876/api/intents/evaluate \
+  -H "Content-Type: application/json" \
+  -d '{"source": "feature/x", "target": "main", "semantic": {"description": "Add auth"}}'
+```
+
+### Modes
+
+- **shadow** (default): Evaluates but always passes. Score and signals logged.
+- **enforce**: Blocks intents with score < 0.5.
+
+---
+
+## Plan Coordination Troubleshooting
+
+A **plan** groups N intents via `plan_id`. Each intent can declare `dependencies`
+(list of intent IDs that must be MERGED before processing).
+
+### Common issues
+
+**Intent stuck waiting for dependency**: Check blocking intent status.
+
+```bash
+converge intent status --db $CONVERGE_DB_PATH --intent-id <blocked-id>
+converge intent status --db $CONVERGE_DB_PATH --intent-id <dependency-id>
+```
+
+**Circular dependency**: Both intents skip indefinitely. Remove one dependency.
+
+**Dependency REJECTED**: Dependent intent will never process. Re-create the
+dependency or remove it from the dependent intent.
+
+---
+
+## Emergency Procedures
+
+### Queue overload
+
+```bash
+# 1. Pause intake
+converge intake set-mode --db $CONVERGE_DB_PATH --mode pause
+
+# 2. Check debt
+converge verification debt --db $CONVERGE_DB_PATH
+
+# 3. Process critical intents only
+converge queue run --db $CONVERGE_DB_PATH --limit 5 --target main
+
+# 4. Resume when stable
+converge intake set-mode --db $CONVERGE_DB_PATH --mode throttle
+# ... wait for debt to decrease ...
+converge intake set-mode --db $CONVERGE_DB_PATH --mode normal
+```
+
+### Disable a misbehaving feature
+
+```bash
+curl -X POST http://localhost:9876/api/flags/<flag_name> \
+  -H "Content-Type: application/json" \
+  -d '{"enabled": false}'
+```
+
+### Security incident
+
+```bash
+# 1. Pause intake
+converge intake set-mode --db $CONVERGE_DB_PATH --mode pause
+
+# 2. Run security scan
+converge security scan --db $CONVERGE_DB_PATH
+
+# 3. Review critical findings
+converge security findings --db $CONVERGE_DB_PATH --severity critical
+
+# 4. Block affected intents via policy review
+```
+
+---
 
 ## Troubleshooting
 

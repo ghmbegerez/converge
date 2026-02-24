@@ -22,18 +22,18 @@ from converge.resilience import CircuitBreaker, CircuitOpen, OperationTimeout, r
 # ---------------------------------------------------------------------------
 
 class TestRateLimiter:
-    def test_allows_within_limit(self):
+    def test_allows_within_limit(self, db_path):
         limiter = TenantRateLimiter(rpm=5, window_seconds=60)
         for _ in range(5):
             assert limiter.is_allowed("tenant-a") is True
 
-    def test_blocks_above_limit(self):
+    def test_blocks_above_limit(self, db_path):
         limiter = TenantRateLimiter(rpm=3, window_seconds=60)
         for _ in range(3):
             limiter.is_allowed("tenant-a")
         assert limiter.is_allowed("tenant-a") is False
 
-    def test_different_tenants_isolated(self):
+    def test_different_tenants_isolated(self, db_path):
         limiter = TenantRateLimiter(rpm=2, window_seconds=60)
         limiter.is_allowed("a")
         limiter.is_allowed("a")
@@ -41,14 +41,14 @@ class TestRateLimiter:
         # Different tenant still has capacity
         assert limiter.is_allowed("b") is True
 
-    def test_tracks_throttled_metrics(self):
+    def test_tracks_throttled_metrics(self, db_path):
         limiter = TenantRateLimiter(rpm=1, window_seconds=60)
         limiter.is_allowed("x")
         limiter.is_allowed("x")  # throttled
         assert limiter.total_throttled == 1
         assert limiter.throttled_by_tenant["x"] == 1
 
-    def test_reset_clears_state(self):
+    def test_reset_clears_state(self, db_path):
         limiter = TenantRateLimiter(rpm=1, window_seconds=60)
         limiter.is_allowed("x")
         limiter.is_allowed("x")

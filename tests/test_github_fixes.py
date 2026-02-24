@@ -28,7 +28,7 @@ from converge.models import Event, EventType, Intent, Status
 # ---------------------------------------------------------------------------
 
 class TestWorkerHttpxImport:
-    def test_httpx_importable_from_worker_module(self):
+    def test_httpx_importable_from_worker_module(self, db_path):
         """worker.py has httpx in its namespace (fix for NameError at line 176)."""
         import converge.worker as worker_mod
         assert hasattr(worker_mod, "httpx"), "httpx should be imported in worker.py"
@@ -39,7 +39,6 @@ class TestWorkerHttpxImport:
         from converge.worker import QueueWorker, WorkerConfig
 
         config = WorkerConfig()
-        config.db_path = str(db_path)
         config.github_app_id = "123"
         config.github_installation_id = "456"
         worker = QueueWorker(config)
@@ -57,7 +56,6 @@ class TestWorkerHttpxImport:
         from converge.worker import QueueWorker, WorkerConfig
 
         config = WorkerConfig()
-        config.db_path = str(db_path)
         config.github_app_id = "123"
         config.github_installation_id = "999"  # global default
         worker = QueueWorker(config)
@@ -75,7 +73,7 @@ class TestWorkerHttpxImport:
                 "installation_id": 77777,
             },
         )
-        event_log.upsert_intent(db_path, intent)
+        event_log.upsert_intent(intent)
 
         mock_pub = AsyncMock()
         with patch.dict(os.environ, {"CONVERGE_GITHUB_APP_ID": "123"}):
@@ -94,7 +92,6 @@ class TestWorkerHttpxImport:
         from converge.worker import QueueWorker, WorkerConfig
 
         config = WorkerConfig()
-        config.db_path = str(db_path)
         config.github_app_id = "123"
         config.github_installation_id = "999"
         worker = QueueWorker(config)
@@ -112,7 +109,7 @@ class TestWorkerHttpxImport:
                 "installation_id": "not-a-number",
             },
         )
-        event_log.upsert_intent(db_path, intent)
+        event_log.upsert_intent(intent)
 
         mock_pub = AsyncMock()
         with patch.dict(os.environ, {"CONVERGE_GITHUB_APP_ID": "123"}):
@@ -188,7 +185,7 @@ class TestPushMultiRepoFilter:
             created_by="test",
             technical={"repo": "org/repo-B", "initial_base_commit": "old-sha"},
         )
-        event_log.upsert_intent(db_path, intent_b)
+        event_log.upsert_intent(intent_b)
 
         # Push on repo-A with the same branch name
         result = _webhook(
@@ -204,7 +201,7 @@ class TestPushMultiRepoFilter:
         assert result["revalidated"] == [], "Intent from repo-B should NOT be revalidated by push on repo-A"
 
         # Verify intent-B was NOT touched
-        updated_b = event_log.get_intent(db_path, "org/repo-B:pr-10")
+        updated_b = event_log.get_intent("org/repo-B:pr-10")
         assert updated_b.status == Status.VALIDATED
         assert updated_b.technical["initial_base_commit"] == "old-sha"
 
@@ -218,7 +215,7 @@ class TestPushMultiRepoFilter:
             created_by="test",
             technical={"repo": "org/repo-A", "initial_base_commit": "old-sha"},
         )
-        event_log.upsert_intent(db_path, intent)
+        event_log.upsert_intent(intent)
 
         result = _webhook(
             f"{live_server}/integrations/github/webhook",
@@ -242,7 +239,7 @@ class TestPushMultiRepoFilter:
             created_by="test",
             technical={"initial_base_commit": "old-sha"},
         )
-        event_log.upsert_intent(db_path, intent)
+        event_log.upsert_intent(intent)
 
         result = _webhook(
             f"{live_server}/integrations/github/webhook",
@@ -282,11 +279,11 @@ class TestPerIntentInstallationId:
             delivery_id="d-install-100",
         )
 
-        intent = event_log.get_intent(db_path, "acme/install-repo:pr-100")
+        intent = event_log.get_intent("acme/install-repo:pr-100")
         assert intent is not None
         assert intent.technical.get("installation_id") == 77777
 
-    def test_try_publish_decision_uses_intent_installation_id(self):
+    def test_try_publish_decision_uses_intent_installation_id(self, db_path):
         """_try_publish_decision prefers the passed installation_id over ENV."""
         from converge.integrations.github_publish import try_publish_decision as _try_publish_decision
         import asyncio
@@ -384,7 +381,7 @@ class TestWebhookRateLimitExempt:
 
 @pytest.mark.integration
 class TestWebhookPayloadLimit:
-    def test_oversized_payload_returns_413(self, live_server):
+    def test_oversized_payload_returns_413(self, db_path, live_server):
         """Payload exceeding max size returns 413."""
         oversized = json.dumps({"data": "x" * (1048576 + 1)}).encode()
         req = Request(
@@ -402,8 +399,12 @@ class TestWebhookPayloadLimit:
             pytest.fail("Should have returned 413")
         except HTTPError as e:
             assert e.code == 413
+        except (BrokenPipeError, ConnectionError):
+            # Server closes the connection before reading the full body
+            # when Content-Length exceeds the limit — this is correct behavior.
+            pass
 
-    def test_normal_payload_accepted(self, live_server):
+    def test_normal_payload_accepted(self, db_path, live_server):
         """Normal-sized payload passes size check."""
         result = _webhook(
             f"{live_server}/integrations/github/webhook",
@@ -436,19 +437,19 @@ def test_list_intents_source_filter(db_path):
         created_by="test",
         technical={"repo": "acme/app"},
     )
-    event_log.upsert_intent(db_path, intent_a)
-    event_log.upsert_intent(db_path, intent_b)
+    event_log.upsert_intent(intent_a)
+    event_log.upsert_intent(intent_b)
 
     # Filter by source=feature/alpha → only intent_a
-    results = event_log.list_intents(db_path, status=Status.READY.value, source="feature/alpha")
+    results = event_log.list_intents(status=Status.READY.value, source="feature/alpha")
     assert len(results) == 1
     assert results[0].id == "repo:pr-1"
 
     # Filter by source=feature/beta → only intent_b
-    results = event_log.list_intents(db_path, status=Status.READY.value, source="feature/beta")
+    results = event_log.list_intents(status=Status.READY.value, source="feature/beta")
     assert len(results) == 1
     assert results[0].id == "repo:pr-2"
 
     # No filter → both
-    results = event_log.list_intents(db_path, status=Status.READY.value)
+    results = event_log.list_intents(status=Status.READY.value)
     assert len(results) == 2

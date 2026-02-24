@@ -260,14 +260,13 @@ def _record_access_event(
     role: str = "",
     tenant: str | None = None,
     reason: str = "",
-    db_path: str = "",
 ) -> None:
     """Record an access.granted or access.denied event in the event log."""
     try:
         from converge import event_log
         from converge.models import Event
 
-        event_log.append(db_path, Event(
+        event_log.append(Event(
             event_type=event_type,
             tenant_id=tenant,
             payload={
@@ -287,11 +286,11 @@ def _record_access_event(
 # FastAPI dependencies
 # ---------------------------------------------------------------------------
 
-def _authenticate(api_key: str, method: str, path: str, db_path: str) -> dict[str, Any]:
+def _authenticate(api_key: str, method: str, path: str) -> dict[str, Any]:
     """Validate API key and return principal, or raise 401."""
     if not api_key:
         _record_access_event("access.denied", method=method, path=path,
-                             reason="no_api_key", db_path=db_path)
+                             reason="no_api_key")
         raise HTTPException(status_code=401, detail="Unauthorized")
 
     hashed = hashlib.sha256(api_key.encode()).hexdigest()
@@ -299,14 +298,14 @@ def _authenticate(api_key: str, method: str, path: str, db_path: str) -> dict[st
 
     if principal is None:
         _record_access_event("access.denied", method=method, path=path,
-                             reason="invalid_key", db_path=db_path)
+                             reason="invalid_key")
         raise HTTPException(status_code=401, detail="Unauthorized")
     return principal
 
 
 def _authorize_role(
     principal: dict[str, Any], min_role: str,
-    method: str, path: str, db_path: str,
+    method: str, path: str,
 ) -> None:
     """Check role, raise 401 if insufficient."""
     if ROLE_RANK.get(principal["role"], -1) < ROLE_RANK.get(min_role, 99):
@@ -314,14 +313,13 @@ def _authorize_role(
             "access.denied", method=method, path=path,
             actor=principal.get("actor", ""), role=principal.get("role", ""),
             tenant=principal.get("tenant"), reason="insufficient_role",
-            db_path=db_path,
         )
         raise HTTPException(status_code=401, detail="Unauthorized")
 
 
 def _authorize_scope(
     principal: dict[str, Any],
-    method: str, path: str, db_path: str,
+    method: str, path: str,
 ) -> None:
     """Check scope, raise 403 if missing."""
     required_scope = _resolve_scope(method, path)
@@ -330,7 +328,6 @@ def _authorize_scope(
             "access.denied", method=method, path=path,
             actor=principal.get("actor", ""), role=principal.get("role", ""),
             tenant=principal.get("tenant"), reason=f"missing_scope:{required_scope}",
-            db_path=db_path,
         )
         raise HTTPException(status_code=403, detail=f"Missing scope: {required_scope}")
 
@@ -342,18 +339,16 @@ def _resolve_principal(request: Request, min_role: str) -> dict[str, Any]:
 
     method = request.method
     path = request.url.path
-    db_path = getattr(request.app.state, "db_path", "")
-
-    principal = _authenticate(request.headers.get("x-api-key", ""), method, path, db_path)
-    _authorize_role(principal, min_role, method, path, db_path)
-    _authorize_scope(principal, method, path, db_path)
+    principal = _authenticate(request.headers.get("x-api-key", ""), method, path)
+    _authorize_role(principal, min_role, method, path)
+    _authorize_scope(principal, method, path)
 
     # Record successful access (skip GET to reduce noise)
     if method != "GET":
         _record_access_event(
             "access.granted", method=method, path=path,
             actor=principal.get("actor", ""), role=principal.get("role", ""),
-            tenant=principal.get("tenant"), db_path=db_path,
+            tenant=principal.get("tenant"),
         )
     return principal
 
@@ -419,13 +414,11 @@ def rotate_key(
     # Place old key in grace period
     _register_rotated_key(hashed, dict(principal), grace_period_seconds)
 
-    db_path = getattr(request.app.state, "db_path", "")
     _record_access_event(
         "access.key_rotated", method="POST", path="/auth/keys/rotate",
         actor=principal.get("actor", ""), role="admin",
         tenant=principal.get("tenant"),
         reason=f"grace_period={grace_period_seconds}s",
-        db_path=db_path,
     )
 
     return {

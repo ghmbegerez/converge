@@ -79,7 +79,7 @@ def _webhook(url: str, event: str, payload: dict, delivery_id: str) -> int:
 @pytest.mark.integration
 class TestWebhookBurst:
 
-    def test_100_plus_concurrent_webhooks(self, recovery_server):
+    def test_100_plus_concurrent_webhooks(self, db_path, recovery_server):
         """100+ simultaneous webhook POSTs — zero 5xx errors."""
         n = 120
         url = f"{recovery_server}/integrations/github/webhook"
@@ -131,11 +131,11 @@ class TestWebhookBurst:
         assert all(s == 200 for s in results), "All PR webhooks should succeed"
 
         # Verify intents were created
-        intents = event_log.list_intents(db_path)
+        intents = event_log.list_intents()
         burst_intents = [i for i in intents if i.id.startswith("burst/repo:pr-")]
         assert len(burst_intents) == n, f"Expected {n} intents, got {len(burst_intents)}"
 
-    def test_duplicate_delivery_idempotent(self, recovery_server):
+    def test_duplicate_delivery_idempotent(self, db_path, recovery_server):
         """Replaying the same delivery_id returns duplicate=true, not an error."""
         url = f"{recovery_server}/integrations/github/webhook"
 
@@ -170,65 +170,63 @@ class TestWorkerCrashRecovery:
         from converge.worker import QueueWorker, WorkerConfig
 
         config = WorkerConfig()
-        config.db_path = str(db_path)
         worker = QueueWorker(config)
 
         # Simulate a held lock
-        acquired = event_log.acquire_queue_lock(db_path, holder_pid=12345)
+        acquired = event_log.acquire_queue_lock(holder_pid=12345)
         assert acquired
-        lock_info = event_log.get_queue_lock_info(db_path)
+        lock_info = event_log.get_queue_lock_info()
         assert lock_info is not None
 
         # Shutdown releases it
         worker._shutdown()
 
-        lock_info = event_log.get_queue_lock_info(db_path)
+        lock_info = event_log.get_queue_lock_info()
         assert lock_info is None, "Lock should be released after shutdown"
 
     def test_new_worker_acquires_lock_after_crash(self, db_path):
         """After force-releasing a stale lock, a new worker can acquire it."""
         # Simulate crashed worker holding the lock
-        event_log.acquire_queue_lock(db_path, holder_pid=99999)
-        assert event_log.get_queue_lock_info(db_path) is not None
+        event_log.acquire_queue_lock(holder_pid=99999)
+        assert event_log.get_queue_lock_info() is not None
 
         # Force release (simulates crash recovery)
-        event_log.force_release_queue_lock(db_path)
+        event_log.force_release_queue_lock()
 
         # New worker can acquire
-        acquired = event_log.acquire_queue_lock(db_path, holder_pid=os.getpid())
+        acquired = event_log.acquire_queue_lock(holder_pid=os.getpid())
         assert acquired, "New worker should acquire the lock after crash recovery"
 
         # Clean up
-        event_log.release_queue_lock(db_path)
+        event_log.release_queue_lock()
 
     def test_expired_lock_automatically_cleared(self, db_path):
         """A lock with expired TTL is automatically cleared on next acquire."""
         # Acquire with 0-second TTL (already expired)
-        event_log.acquire_queue_lock(db_path, holder_pid=11111, ttl_seconds=0)
+        event_log.acquire_queue_lock(holder_pid=11111, ttl_seconds=0)
 
         # Wait a moment for the expiration timestamp to pass
         time.sleep(0.1)
 
         # New acquire should succeed — expired lock is cleaned up
-        acquired = event_log.acquire_queue_lock(db_path, holder_pid=os.getpid())
+        acquired = event_log.acquire_queue_lock(holder_pid=os.getpid())
         assert acquired, "Expired lock should be automatically cleared"
 
-        event_log.release_queue_lock(db_path)
+        event_log.release_queue_lock()
 
     def test_worker_records_lifecycle_events(self, db_path):
         """Worker start/stop records WORKER_STARTED and WORKER_STOPPED events."""
         from converge.worker import QueueWorker, WorkerConfig
 
         config = WorkerConfig()
-        config.db_path = str(db_path)
         config.poll_interval = 1
         worker = QueueWorker(config)
 
         # Start in a thread and stop after 1 cycle
         def run_briefly():
             worker._running = True
-            event_log.init(db_path)
-            event_log.append(db_path, Event(
+            event_log.init()
+            event_log.append(Event(
                 event_type=EventType.WORKER_STARTED,
                 payload={"pid": os.getpid()},
             ))
@@ -239,7 +237,7 @@ class TestWorkerCrashRecovery:
         t.start()
         t.join(timeout=10)
 
-        events = event_log.query(db_path)
+        events = event_log.query()
         types = [e["event_type"] for e in events]
         assert "worker.started" in types
         assert "worker.stopped" in types
@@ -251,7 +249,7 @@ class TestWorkerCrashRecovery:
 
 class TestStoreFailover:
 
-    def test_sqlite_store_works_after_postgres_unavailable(self, tmp_path):
+    def test_sqlite_store_works_after_postgres_unavailable(self, db_path, tmp_path):
         """When Postgres is unavailable, SQLite store works as fallback."""
         from converge.adapters.store_factory import create_store
 
@@ -269,7 +267,7 @@ class TestStoreFailover:
         events = sqlite_store.query()
         assert len(events) == 1
 
-    def test_unknown_backend_raises(self):
+    def test_unknown_backend_raises(self, db_path):
         """Unknown backend raises ValueError."""
         from converge.adapters.store_factory import create_store
 

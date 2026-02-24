@@ -11,7 +11,7 @@ import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
 
-from converge.adapters.base_store import SCHEMA, BaseConvergeStore
+from converge.adapters.base_store import SCHEMA, _MIGRATIONS, BaseConvergeStore
 
 
 class SqliteStore(BaseConvergeStore):
@@ -22,6 +22,11 @@ class SqliteStore(BaseConvergeStore):
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
         with sqlite3.connect(str(self._db_path)) as conn:
             conn.executescript(SCHEMA)
+            for migration in _MIGRATIONS:
+                try:
+                    conn.execute(migration)
+                except sqlite3.OperationalError:
+                    pass  # column/table already exists
 
     @property
     def db_path(self) -> Path:

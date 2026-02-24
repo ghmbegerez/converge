@@ -29,7 +29,6 @@ async def try_publish_decision(
     installation_id: int | None = None,
     fallback_installation_id: Any = None,
     client: httpx.AsyncClient | None = None,
-    db_path: str = "",
 ) -> None:
     """Best-effort publish a decision to GitHub. Never raises.
 
@@ -41,7 +40,6 @@ async def try_publish_decision(
     worker passes a shared client across a batch).  Otherwise creates a
     one-shot client per call.
 
-    ``db_path`` — if provided, records a ``GITHUB_DECISION_PUBLISHED`` event
     on success or ``GITHUB_DECISION_PUBLISH_FAILED`` on failure.
     """
     from converge.integrations.github_app import (
@@ -78,8 +76,7 @@ async def try_publish_decision(
             client=client,
         )
 
-        if db_path:
-            event_log.append(db_path, Event(
+        event_log.append(Event(
                 event_type=EventType.GITHUB_DECISION_PUBLISHED,
                 intent_id=intent_id,
                 payload={
@@ -91,17 +88,16 @@ async def try_publish_decision(
             ))
     except Exception as exc:
         log.warning("Failed to publish decision to GitHub for %s", intent_id, exc_info=True)
-        if db_path:
-            try:
-                event_log.append(db_path, Event(
-                    event_type=EventType.GITHUB_DECISION_PUBLISH_FAILED,
-                    intent_id=intent_id,
-                    payload={
-                        "decision": decision,
-                        "head_sha": head_sha,
-                        "repo": repo_full_name,
-                        "error": str(exc),
-                    },
-                ))
-            except Exception:
-                log.warning("Failed to record publish failure event for %s", intent_id)
+        try:
+            event_log.append(Event(
+                event_type=EventType.GITHUB_DECISION_PUBLISH_FAILED,
+                intent_id=intent_id,
+                payload={
+                    "decision": decision,
+                    "head_sha": head_sha,
+                    "repo": repo_full_name,
+                    "error": str(exc),
+                },
+            ))
+        except Exception:
+            log.warning("Failed to record publish failure event for %s", intent_id)

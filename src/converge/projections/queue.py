@@ -2,16 +2,17 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 from converge import event_log
-from converge.models import QueueState, Status
+from converge.defaults import QUERY_LIMIT_LARGE
+from converge.models import Status
+from converge.projections_models import QueueState
 
 
-def queue_state(db_path: str | Path, tenant_id: str | None = None) -> QueueState:
+def queue_state(tenant_id: str | None = None) -> QueueState:
     """Current queue state derived from intents table."""
-    intents = event_log.list_intents(db_path, tenant_id=tenant_id, limit=10000)
+    intents = event_log.list_intents(tenant_id=tenant_id, limit=QUERY_LIMIT_LARGE)
     by_status: dict[str, int] = {}
     pending = []
     for i in intents:
@@ -26,12 +27,11 @@ def queue_state(db_path: str | Path, tenant_id: str | None = None) -> QueueState
 
 
 def agent_performance(
-    db_path: str | Path,
     agent_id: str,
     tenant_id: str | None = None,
 ) -> dict[str, Any]:
     """Compute agent trust metrics from event history."""
-    agent_events = event_log.query(db_path, agent_id=agent_id, tenant_id=tenant_id, limit=10000)
+    agent_events = event_log.query(agent_id=agent_id, tenant_id=tenant_id, limit=QUERY_LIMIT_LARGE)
     total = len(agent_events)
     by_type: dict[str, int] = {}
     for e in agent_events:

@@ -12,6 +12,8 @@ import os
 
 import pytest
 
+from conftest import make_intent  # noqa: F401 — available for contract tests that need it
+
 from converge.adapters.sqlite_store import SqliteStore
 from converge.models import Event, Intent, RiskLevel, Status, new_id, now_iso
 from converge.ports import (
@@ -133,11 +135,8 @@ class TestEventStoreContract:
 # ===================================================================
 
 class TestIntentStoreContract:
-    def _make_intent(self, id_: str, priority: int = 3, status: Status = Status.READY) -> Intent:
-        return Intent(id=id_, source="f/a", target="main", status=status, priority=priority)
-
     def test_upsert_and_get(self, contract_store):
-        intent = self._make_intent("i-1")
+        intent = Intent(id="i-1", source="f/a", target="main", status=Status.READY, priority=3)
         contract_store.upsert_intent(intent)
         got = contract_store.get_intent("i-1")
         assert got is not None
@@ -145,13 +144,13 @@ class TestIntentStoreContract:
         assert got.status == Status.READY
 
     def test_list_ordering(self, contract_store):
-        contract_store.upsert_intent(self._make_intent("low", priority=5))
-        contract_store.upsert_intent(self._make_intent("high", priority=1))
+        contract_store.upsert_intent(Intent(id="low", source="f/a", target="main", status=Status.READY, priority=5))
+        contract_store.upsert_intent(Intent(id="high", source="f/a", target="main", status=Status.READY, priority=1))
         intents = contract_store.list_intents()
         assert intents[0].id == "high"
 
     def test_update_status(self, contract_store):
-        contract_store.upsert_intent(self._make_intent("i-1"))
+        contract_store.upsert_intent(Intent(id="i-1", source="f/a", target="main", status=Status.READY, priority=3))
         contract_store.update_intent_status("i-1", Status.MERGED)
         got = contract_store.get_intent("i-1")
         assert got is not None

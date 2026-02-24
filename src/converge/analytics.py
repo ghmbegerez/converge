@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from converge import event_log, scm
+from converge.defaults import QUERY_LIMIT_LARGE, QUERY_LIMIT_MEDIUM
 from converge.models import Event, EventType, now_iso
 from converge.policy import calibrate_profiles, load_config
 
@@ -29,8 +30,6 @@ _REVIEW_RISK_THRESHOLD = 50
 _REVIEW_CRITICAL_DISPLAY = 3
 
 # --- Query/export limits ---
-_CALIBRATION_QUERY_LIMIT = 10000
-_EXPORT_INTENT_LIMIT = 100000
 _DECISION_QUERY_LIMIT = 50
 
 
@@ -114,24 +113,107 @@ def archaeology_report(
     }
 
 
-def load_coupling_data(cwd: str | Path | None = None) -> list[dict[str, Any]]:
+def load_coupling_data(
+    cwd: str | Path | None = None,
+) -> list[dict[str, Any]]:
     """Load coupling data for risk scoring integration.
 
-    Tries cached archaeology snapshot first, then computes on-the-fly.
-    Returns list of {file_a, file_b, co_changes} suitable for risk.evaluate_risk().
+    Strategy (AR-07):
+      1. Cached snapshot → source="snapshot"
+      2. Enrich with link-based coupling → source="hybrid"
+      3. Fallback: git log on-the-fly → source="git-log"
+
+    Returns list of {file_a, file_b, co_changes, source, freshness} suitable
+    for risk.evaluate_risk().
     """
     snapshot = _load_snapshot()
     if snapshot is not None:
-        return snapshot.get("coupling", [])
+        coupling = snapshot.get("coupling", [])
+        freshness = snapshot.get("timestamp", "")
+        # AR-08: annotate provenance
+        for item in coupling:
+            item.setdefault("source", "snapshot")
+            item.setdefault("freshness", freshness)
+
+        # AR-07: enrich with link-based coupling if store is available
+        if event_log.get_store() is not None:
+            link_coupling = _coupling_from_links()
+            if link_coupling:
+                coupling = _merge_coupling(coupling, link_coupling, source="hybrid")
+        return coupling
 
     # No cache — compute a quick coupling from recent commits
     entries = scm.log_entries(max_commits=_QUICK_COUPLING_MAX_COMMITS, cwd=cwd)
-    if not entries:
+    freshness = now_iso()
+    if entries:
+        raw = _compute_coupling(entries)
+        coupling = [{"file_a": a, "file_b": b, "co_changes": c, "source": "git-log", "freshness": freshness}
+                    for (a, b), c in raw.most_common(_COUPLING_TOP_N) if c >= _COUPLING_MIN_CO_CHANGES]
+    else:
+        coupling = []
+
+    # AR-07: enrich with link-based coupling if store is available
+    if event_log.get_store() is not None:
+        link_coupling = _coupling_from_links()
+        if link_coupling:
+            coupling = _merge_coupling(coupling, link_coupling, source="hybrid") if coupling else link_coupling
+
+    return coupling
+
+
+def _coupling_from_links() -> list[dict[str, Any]]:
+    """Derive coupling from intent commit links (AR-07).
+
+    Intents that share commits or touch overlapping files imply coupling
+    between those files. This is a lightweight heuristic based on link data.
+    """
+    intents = event_log.list_intents(limit=QUERY_LIMIT_MEDIUM)
+    # Group files by intent from technical.scope_hint
+    intent_files: dict[str, list[str]] = {}
+    for intent in intents:
+        links = event_log.list_commit_links(intent.id)
+        if links:
+            scope = intent.technical.get("scope_hint", [])
+            if scope:
+                intent_files[intent.id] = scope
+
+    if not intent_files:
         return []
 
-    coupling = _compute_coupling(entries)
-    return [{"file_a": a, "file_b": b, "co_changes": c}
+    # Compute co-change from scope hints across linked intents
+    coupling: Counter[tuple[str, str]] = Counter()
+    for files in intent_files.values():
+        sorted_files = sorted(set(files))
+        for i, f1 in enumerate(sorted_files):
+            for f2 in sorted_files[i + 1:]:
+                coupling[(f1, f2)] += 1
+
+    freshness = now_iso()
+    return [{"file_a": a, "file_b": b, "co_changes": c, "source": "linked-history", "freshness": freshness}
             for (a, b), c in coupling.most_common(_COUPLING_TOP_N) if c >= _COUPLING_MIN_CO_CHANGES]
+
+
+def _merge_coupling(
+    base: list[dict[str, Any]],
+    extra: list[dict[str, Any]],
+    source: str = "hybrid",
+) -> list[dict[str, Any]]:
+    """Merge two coupling lists, summing co_changes for overlapping pairs."""
+    index: dict[tuple[str, str], dict[str, Any]] = {}
+    for item in base:
+        key = (item["file_a"], item["file_b"])
+        index[key] = dict(item)
+
+    for item in extra:
+        key = (item["file_a"], item["file_b"])
+        if key in index:
+            index[key]["co_changes"] += item["co_changes"]
+            index[key]["source"] = source
+        else:
+            index[key] = dict(item)
+
+    result = sorted(index.values(), key=lambda x: x["co_changes"], reverse=True)
+    return result[:_COUPLING_TOP_N]
 
 
 def load_hotspot_set(cwd: str | Path | None = None) -> set[str]:
@@ -165,16 +247,72 @@ def save_archaeology_snapshot(
 
 
 # ---------------------------------------------------------------------------
+# Snapshot refresh and validation (AR-09)
+# ---------------------------------------------------------------------------
+
+def refresh_snapshot(
+    max_commits: int = _DEFAULT_MAX_COMMITS,
+    cwd: str | Path | None = None,
+    output_path: str | Path | None = None,
+) -> dict[str, Any]:
+    """Regenerate archaeology snapshot and validate key counters.
+
+    Returns validation result with pass/fail status.
+    """
+    report = archaeology_report(max_commits=max_commits, cwd=cwd)
+    if "error" in report:
+        return {"valid": False, "error": report["error"]}
+
+    path = save_archaeology_snapshot(report, output_path)
+
+    validation = _validate_snapshot(report)
+    return {
+        "valid": validation["valid"],
+        "path": path,
+        "commits_analyzed": report["commits_analyzed"],
+        "hotspot_count": len(report.get("hotspots", [])),
+        "coupling_count": len(report.get("coupling", [])),
+        "author_count": len(report.get("authors", [])),
+        "bus_factor": report.get("bus_factor", 0),
+        "issues": validation.get("issues", []),
+        "timestamp": report.get("timestamp", now_iso()),
+    }
+
+
+def _validate_snapshot(report: dict[str, Any]) -> dict[str, Any]:
+    """Validate snapshot integrity: non-empty, consistent counters."""
+    issues: list[str] = []
+
+    if report.get("commits_analyzed", 0) == 0:
+        issues.append("Zero commits analyzed")
+
+    hotspots = report.get("hotspots", [])
+    coupling = report.get("coupling", [])
+    authors = report.get("authors", [])
+
+    if not hotspots:
+        issues.append("No hotspots found")
+    if not authors:
+        issues.append("No authors found")
+
+    # Coupling can legitimately be empty for small repos
+    bus_factor = report.get("bus_factor", 0)
+    if bus_factor == 0:
+        issues.append("Bus factor is zero")
+
+    return {"valid": len(issues) == 0, "issues": issues}
+
+
+# ---------------------------------------------------------------------------
 # Calibration (data-driven threshold adjustment)
 # ---------------------------------------------------------------------------
 
 def run_calibration(
-    db_path: str | Path,
     output_path: str | Path | None = None,
 ) -> dict[str, Any]:
     """Calibrate policy profiles from historical risk data."""
     # Gather historical risk scores from events
-    risk_events = event_log.query(db_path, event_type=EventType.RISK_EVALUATED, limit=_CALIBRATION_QUERY_LIMIT)
+    risk_events = event_log.query(event_type=EventType.RISK_EVALUATED, limit=QUERY_LIMIT_LARGE)
     historical = [e["payload"] for e in risk_events]
 
     config = load_config()
@@ -193,7 +331,7 @@ def run_calibration(
         json.dump(new_profiles, f, indent=2)
     result["output_path"] = str(path)
 
-    event_log.append(db_path, Event(
+    event_log.append(Event(
         event_type=EventType.CALIBRATION_COMPLETED,
         payload=result,
         evidence={"data_points": len(historical)},
@@ -207,19 +345,18 @@ def run_calibration(
 # ---------------------------------------------------------------------------
 
 def risk_review(
-    db_path: str | Path,
     intent_id: str,
     tenant_id: str | None = None,
 ) -> dict[str, Any]:
     """Build comprehensive risk review for an intent."""
     from converge import projections
 
-    intent = event_log.get_intent(db_path, intent_id)
+    intent = event_log.get_intent(intent_id)
     if intent is None:
         return {"error": f"Intent {intent_id} not found"}
 
-    events = _gather_intent_events(db_path, intent_id)
-    compliance = projections.compliance_report(db_path, tenant_id=tenant_id)
+    events = _gather_intent_events(intent_id)
+    compliance = projections.compliance_report(tenant_id=tenant_id)
     diagnostics = _build_review_diagnostics(intent, events)
 
     review = {
@@ -242,12 +379,12 @@ def risk_review(
     return review
 
 
-def _gather_intent_events(db_path: str | Path, intent_id: str) -> dict[str, Any]:
+def _gather_intent_events(intent_id: str) -> dict[str, Any]:
     """Gather latest risk/sim/policy/decision events for an intent."""
-    risk_events = event_log.query(db_path, event_type=EventType.RISK_EVALUATED, intent_id=intent_id, limit=1)
-    sim_events = event_log.query(db_path, event_type=EventType.SIMULATION_COMPLETED, intent_id=intent_id, limit=1)
-    policy_events = event_log.query(db_path, event_type=EventType.POLICY_EVALUATED, intent_id=intent_id, limit=1)
-    decisions = event_log.query(db_path, intent_id=intent_id, limit=_DECISION_QUERY_LIMIT)
+    risk_events = event_log.query(event_type=EventType.RISK_EVALUATED, intent_id=intent_id, limit=1)
+    sim_events = event_log.query(event_type=EventType.SIMULATION_COMPLETED, intent_id=intent_id, limit=1)
+    policy_events = event_log.query(event_type=EventType.POLICY_EVALUATED, intent_id=intent_id, limit=1)
+    decisions = event_log.query(intent_id=intent_id, limit=_DECISION_QUERY_LIMIT)
     return {
         "risk_payload": risk_events[0]["payload"] if risk_events else None,
         "sim_payload": sim_events[0]["payload"] if sim_events else None,
@@ -312,113 +449,3 @@ def _derive_review_learning(
     return {"lessons": lessons, "summary": f"Review: {len(lessons)} actionable lesson(s)"}
 
 
-# ---------------------------------------------------------------------------
-# Decision dataset export
-# ---------------------------------------------------------------------------
-
-def export_decisions(
-    db_path: str | Path,
-    output_path: str | Path | None = None,
-    tenant_id: str | None = None,
-    fmt: str = "jsonl",
-) -> dict[str, Any]:
-    """Export structured decision dataset for offline analysis and model retraining.
-
-    Each record joins: intent → simulation → risk → policy → decision.
-    Output: JSONL (one JSON object per line) or CSV.
-    """
-    intents = event_log.list_intents(db_path, tenant_id=tenant_id, limit=_EXPORT_INTENT_LIMIT)
-    records = [_build_decision_record(db_path, intent) for intent in intents]
-
-    path = Path(output_path or f".converge/datasets/decisions.{fmt}")
-    path.parent.mkdir(parents=True, exist_ok=True)
-
-    if fmt == "csv":
-        _write_csv(records, path)
-    else:
-        _write_jsonl(records, path)
-
-    result = {
-        "records": len(records),
-        "format": fmt,
-        "output_path": str(path),
-        "timestamp": now_iso(),
-    }
-
-    event_log.append(db_path, Event(
-        event_type=EventType.DATASET_EXPORTED,
-        tenant_id=tenant_id,
-        payload=result,
-        evidence={"records": len(records)},
-    ))
-
-    return result
-
-
-def _build_decision_record(db_path: str | Path, intent: Any) -> dict[str, Any]:
-    """Build a single flat decision record by joining intent/sim/risk/policy events."""
-    risk_events = event_log.query(db_path, event_type=EventType.RISK_EVALUATED, intent_id=intent.id, limit=1)
-    sim_events = event_log.query(db_path, event_type=EventType.SIMULATION_COMPLETED, intent_id=intent.id, limit=1)
-    policy_events = event_log.query(db_path, event_type=EventType.POLICY_EVALUATED, intent_id=intent.id, limit=1)
-
-    risk_data = risk_events[0]["payload"] if risk_events else {}
-    sim_data = sim_events[0]["payload"] if sim_events else {}
-    policy_data = policy_events[0]["payload"] if policy_events else {}
-    signals = risk_data.get("signals", {})
-
-    return {
-        "intent_id": intent.id,
-        "source": intent.source,
-        "target": intent.target,
-        "status": intent.status.value,
-        "risk_level": intent.risk_level.value,
-        "priority": intent.priority,
-        "retries": intent.retries,
-        "tenant_id": intent.tenant_id,
-        "created_at": intent.created_at,
-        # Simulation
-        "mergeable": sim_data.get("mergeable"),
-        "conflict_count": len(sim_data.get("conflicts", [])),
-        "files_changed_count": len(sim_data.get("files_changed", [])),
-        # Risk scores
-        "risk_score": risk_data.get("risk_score"),
-        "damage_score": risk_data.get("damage_score"),
-        "entropy_score": risk_data.get("entropy_score"),
-        "propagation_score": risk_data.get("propagation_score"),
-        "containment_score": risk_data.get("containment_score"),
-        # 4 signals
-        "entropic_load": signals.get("entropic_load"),
-        "contextual_value": signals.get("contextual_value"),
-        "complexity_delta": signals.get("complexity_delta"),
-        "path_dependence": signals.get("path_dependence"),
-        # Bombs
-        "bomb_count": len(risk_data.get("bombs", [])),
-        "bomb_types": [b.get("type") for b in risk_data.get("bombs", [])],
-        # Policy
-        "policy_verdict": policy_data.get("verdict"),
-        "policy_profile": policy_data.get("profile_used"),
-        # Graph
-        "graph_nodes": risk_data.get("graph_metrics", {}).get("nodes"),
-        "graph_edges": risk_data.get("graph_metrics", {}).get("edges"),
-        "graph_density": risk_data.get("graph_metrics", {}).get("density"),
-    }
-
-
-def _write_jsonl(records: list[dict[str, Any]], path: Path) -> None:
-    """Write records as JSONL (one JSON object per line)."""
-    with open(path, "w") as f:
-        for r in records:
-            f.write(json.dumps(r, default=str) + "\n")
-
-
-def _write_csv(records: list[dict[str, Any]], path: Path) -> None:
-    """Write records as CSV with flattened list columns."""
-    import csv
-    if not records:
-        return
-    with open(path, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=records[0].keys())
-        writer.writeheader()
-        for r in records:
-            r["bomb_types"] = ",".join(r.get("bomb_types") or [])
-            writer.writerow(r)

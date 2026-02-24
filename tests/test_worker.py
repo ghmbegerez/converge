@@ -24,7 +24,7 @@ from converge.worker import QueueWorker, WorkerConfig
 # ---------------------------------------------------------------------------
 
 class TestWorkerConfig:
-    def test_defaults(self):
+    def test_defaults(self, db_path):
         with patch.dict(os.environ, {}, clear=True):
             # Need to avoid reading stale env vars
             cfg = WorkerConfig()
@@ -35,7 +35,7 @@ class TestWorkerConfig:
             assert cfg.auto_confirm is False
             assert cfg.github_enabled is False
 
-    def test_custom_config(self):
+    def test_custom_config(self, db_path):
         with patch.dict(os.environ, {
             "CONVERGE_WORKER_POLL_INTERVAL": "10",
             "CONVERGE_WORKER_BATCH_SIZE": "50",
@@ -58,7 +58,6 @@ class TestWorkerLifecycle:
     def test_worker_starts_and_stops(self, db_path):
         """Worker can be started in a thread and stopped gracefully."""
         config = WorkerConfig()
-        config.db_path = str(db_path)
         config.poll_interval = 1
 
         worker = QueueWorker(config)
@@ -81,7 +80,6 @@ class TestWorkerLifecycle:
     def test_worker_processes_empty_queue(self, db_path):
         """Worker handles empty queue gracefully."""
         config = WorkerConfig()
-        config.db_path = str(db_path)
         config.poll_interval = 1
 
         worker = QueueWorker(config)
@@ -100,7 +98,6 @@ class TestWorkerLifecycle:
     def test_worker_records_start_stop_events(self, db_path):
         """Worker records WORKER_STARTED and WORKER_STOPPED events."""
         config = WorkerConfig()
-        config.db_path = str(db_path)
         config.poll_interval = 1
 
         worker = QueueWorker(config)
@@ -114,8 +111,8 @@ class TestWorkerLifecycle:
         worker.stop()
         thread.join(timeout=5)
 
-        started = event_log.query(db_path, event_type=EventType.WORKER_STARTED)
-        stopped = event_log.query(db_path, event_type=EventType.WORKER_STOPPED)
+        started = event_log.query(event_type=EventType.WORKER_STARTED)
+        stopped = event_log.query(event_type=EventType.WORKER_STOPPED)
         assert len(started) >= 1
         assert len(stopped) >= 1
         assert started[0]["payload"]["pid"] == os.getpid()
@@ -123,7 +120,6 @@ class TestWorkerLifecycle:
     def test_worker_stop_method(self, db_path):
         """Calling stop() triggers graceful shutdown."""
         config = WorkerConfig()
-        config.db_path = str(db_path)
         config.poll_interval = 60  # long interval so it's waiting
 
         worker = QueueWorker(config)
@@ -211,7 +207,7 @@ class TestWebhookSync:
         assert result["ok"] is True
         assert result["intent_id"] == "acme/myrepo:pr-42"
 
-        intent = event_log.get_intent(db_path, "acme/myrepo:pr-42")
+        intent = event_log.get_intent("acme/myrepo:pr-42")
         assert intent is not None
         assert intent.status == Status.READY
         assert intent.source == "feature/login"
@@ -254,7 +250,7 @@ class TestWebhookSync:
         )
         assert result["action"] == "merged"
 
-        intent = event_log.get_intent(db_path, "acme/repo:pr-43")
+        intent = event_log.get_intent("acme/repo:pr-43")
         assert intent.status == Status.MERGED
 
     def test_pr_closed_not_merged_rejects_intent(self, live_server, db_path):
@@ -292,7 +288,7 @@ class TestWebhookSync:
         )
         assert result["action"] == "rejected"
 
-        intent = event_log.get_intent(db_path, "acme/repo:pr-44")
+        intent = event_log.get_intent("acme/repo:pr-44")
         assert intent.status == Status.REJECTED
 
     def test_push_triggers_revalidation(self, live_server, db_path):
@@ -307,7 +303,7 @@ class TestWebhookSync:
             tenant_id=None,
             technical={"repo": "acme/repo", "initial_base_commit": "old-sha"},
         )
-        event_log.upsert_intent(db_path, intent)
+        event_log.upsert_intent(intent)
 
         result = self._webhook(
             f"{live_server}/integrations/github/webhook",
@@ -322,7 +318,7 @@ class TestWebhookSync:
         assert result["action"] == "push_processed"
         assert "acme/repo:pr-50" in result["revalidated"]
 
-        updated = event_log.get_intent(db_path, "acme/repo:pr-50")
+        updated = event_log.get_intent("acme/repo:pr-50")
         assert updated.status == Status.READY
         assert updated.technical["initial_base_commit"] == "new-sha-999"
 
@@ -362,7 +358,7 @@ class TestWebhookSync:
         )
         assert result["ok"] is True
 
-        intent = event_log.get_intent(db_path, "acme/repo:pr-55")
+        intent = event_log.get_intent("acme/repo:pr-55")
         assert intent.status == Status.READY
         assert intent.technical["initial_base_commit"] == "sha-v2"
 

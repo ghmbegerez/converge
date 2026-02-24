@@ -21,9 +21,11 @@ from converge.api.routers import (
     dashboard,
     events,
     health,
+    intake,
     intents,
     queue,
     risk,
+    security,
     webhooks,
 )
 
@@ -42,14 +44,19 @@ def create_app(
     )
 
     # Store configuration in app state
-    app.state.db_path = str(db_path) if db_path else ""
+    default_db = str(Path(".converge") / "state.db")
+    resolved_db_path = str(db_path) if db_path else os.environ.get("CONVERGE_DB_PATH", default_db)
+    app.state.db_path = resolved_db_path
     app.state.webhook_secret = webhook_secret or os.environ.get(
         "CONVERGE_GITHUB_WEBHOOK_SECRET", ""
     )
 
-    # Initialise the event store
-    if db_path:
-        event_log.init(db_path)
+    # Initialise the event store from runtime env (sqlite/postgres).
+    event_log.init(
+        db_path=resolved_db_path,
+        backend=os.environ.get("CONVERGE_DB_BACKEND"),
+        dsn=os.environ.get("CONVERGE_PG_DSN"),
+    )
 
     if not app.state.webhook_secret:
         log.warning(
@@ -114,6 +121,8 @@ def create_app(
     api.include_router(agents.router)
     api.include_router(compliance.router)
     api.include_router(events.router)
+    api.include_router(intake.router)
+    api.include_router(security.router)
     api.include_router(dashboard.router)
 
     app.include_router(api, prefix="/api")

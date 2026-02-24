@@ -34,6 +34,7 @@ from converge.projections.trends import (
 )
 from converge.projections.predictions import predict_issues
 from converge.projections.queue import agent_performance, queue_state
+from converge.projections.verification import verification_debt
 from converge.projections.learning import (
     derive_change_learning,
     derive_health_learning,
@@ -58,6 +59,8 @@ __all__ = [
     # Queue
     "queue_state",
     "agent_performance",
+    # Verification debt
+    "verification_debt",
     # Learning
     "derive_health_learning",
     "derive_change_learning",

@@ -20,9 +20,8 @@ def compliance_report(
     tenant_id: str | None = None,
     principal: dict = Depends(require_viewer),
 ):
-    db = request.app.state.db_path
     tenant = principal.get("tenant") or tenant_id
-    return projections.compliance_report(db, tenant_id=tenant).to_dict()
+    return projections.compliance_report(tenant_id=tenant).to_dict()
 
 
 @router.get("/alerts")
@@ -31,9 +30,8 @@ def compliance_alerts(
     tenant_id: str | None = None,
     principal: dict = Depends(require_viewer),
 ):
-    db = request.app.state.db_path
     tenant = principal.get("tenant") or tenant_id
-    report = projections.compliance_report(db, tenant_id=tenant)
+    report = projections.compliance_report(tenant_id=tenant)
     return report.alerts
 
 
@@ -43,9 +41,8 @@ def list_thresholds(
     tenant_id: str | None = None,
     principal: dict = Depends(require_viewer),
 ):
-    db = request.app.state.db_path
     tenant = principal.get("tenant") or tenant_id
-    return event_log.list_compliance_thresholds(db, tenant_id=tenant)
+    return event_log.list_compliance_thresholds(tenant_id=tenant)
 
 
 @router.post("/thresholds")
@@ -54,11 +51,10 @@ def upsert_thresholds(
     body: ComplianceThresholdsBody,
     principal: dict = Depends(require_viewer),
 ):
-    db = request.app.state.db_path
     tid = enforce_tenant(body.tenant_id or None, principal)
     data = body.model_dump(exclude_none=True)
-    event_log.upsert_compliance_thresholds(db, tid, data)
-    event_log.append(db, Event(
+    event_log.upsert_compliance_thresholds(tid, data)
+    event_log.append(Event(
         event_type=EventType.COMPLIANCE_THRESHOLDS_UPDATED,
         tenant_id=tid,
         payload=data,
@@ -72,8 +68,7 @@ def thresholds_history(
     tenant_id: str | None = None,
     principal: dict = Depends(require_operator),
 ):
-    db = request.app.state.db_path
     tenant = principal.get("tenant") or tenant_id
     return event_log.query(
-        db, event_type=EventType.COMPLIANCE_THRESHOLDS_UPDATED, tenant_id=tenant, limit=50,
+        event_type=EventType.COMPLIANCE_THRESHOLDS_UPDATED, tenant_id=tenant, limit=50,
     )

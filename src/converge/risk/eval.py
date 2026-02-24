@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from converge.defaults import CONFLICT_DISPLAY_LIMIT
 from converge.models import Intent, RiskEval, Simulation
 from converge.risk._constants import _CORE_TARGETS, _SEVERITY_ORDER
 from converge.risk.bombs import detect_bombs
@@ -36,7 +37,6 @@ _DIAG_PATH_DEP = 40
 # --- Findings thresholds ---
 _FINDING_LARGE_CHANGE = 15
 _FINDING_DEP_SPREAD = 3
-_CONFLICT_DISPLAY_LIMIT = 5     # max conflicts shown in diagnostics
 
 from converge.risk.signals import (
     compute_complexity_delta,
@@ -152,7 +152,7 @@ def _diag_merge_conflict(sim: Simulation, out: list[dict[str, Any]]) -> None:
         out.append({
             "severity": "critical",
             "code": "diag.merge_conflict",
-            "explanation": f"Merge has {len(sim.conflicts)} conflict(s): {', '.join(sim.conflicts[:_CONFLICT_DISPLAY_LIMIT])}",
+            "explanation": f"Merge has {len(sim.conflicts)} conflict(s): {', '.join(sim.conflicts[:CONFLICT_DISPLAY_LIMIT])}",
             "recommendation": "Resolve conflicts in source branch before retrying",
         })
 

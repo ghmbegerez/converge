@@ -21,18 +21,18 @@ from converge.api.auth import _authorize_request, _verify_github_signature
 # ---------------------------------------------------------------------------
 
 class TestAuth:
-    def test_auth_disabled_returns_admin(self):
+    def test_auth_disabled_returns_admin(self, db_path):
         with patch.dict(os.environ, {"CONVERGE_AUTH_REQUIRED": "0"}):
             principal = _authorize_request({}, "/api/summary")
             assert principal is not None
             assert principal["role"] == "admin"
 
-    def test_auth_enabled_no_key_returns_none(self):
+    def test_auth_enabled_no_key_returns_none(self, db_path):
         with patch.dict(os.environ, {"CONVERGE_AUTH_REQUIRED": "1", "CONVERGE_API_KEYS": ""}):
             principal = _authorize_request({}, "/api/summary")
             assert principal is None
 
-    def test_auth_valid_key(self):
+    def test_auth_valid_key(self, db_path):
         with patch.dict(os.environ, {
             "CONVERGE_AUTH_REQUIRED": "1",
             "CONVERGE_API_KEYS": "testkey123:admin:testactor",
@@ -42,7 +42,7 @@ class TestAuth:
             assert principal["role"] == "admin"
             assert principal["actor"] == "testactor"
 
-    def test_auth_wrong_key_returns_none(self):
+    def test_auth_wrong_key_returns_none(self, db_path):
         with patch.dict(os.environ, {
             "CONVERGE_AUTH_REQUIRED": "1",
             "CONVERGE_API_KEYS": "testkey123:admin:testactor",
@@ -50,7 +50,7 @@ class TestAuth:
             principal = _authorize_request({"x-api-key": "wrongkey"}, "/api/summary")
             assert principal is None
 
-    def test_auth_insufficient_role(self):
+    def test_auth_insufficient_role(self, db_path):
         with patch.dict(os.environ, {
             "CONVERGE_AUTH_REQUIRED": "1",
             "CONVERGE_API_KEYS": "testkey123:viewer:testactor",
@@ -59,7 +59,7 @@ class TestAuth:
             principal = _authorize_request({"x-api-key": "testkey123"}, "/api/audit/recent")
             assert principal is None
 
-    def test_auth_key_with_tenant(self):
+    def test_auth_key_with_tenant(self, db_path):
         with patch.dict(os.environ, {
             "CONVERGE_AUTH_REQUIRED": "1",
             "CONVERGE_API_KEYS": "testkey123:operator:testactor:team-a",
@@ -69,14 +69,14 @@ class TestAuth:
 
 
 class TestGitHubSignature:
-    def test_valid_signature(self):
+    def test_valid_signature(self, db_path):
         import hmac, hashlib
         secret = "mysecret"
         body = b'{"action": "opened"}'
         sig = "sha256=" + hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
         assert _verify_github_signature(secret, body, sig) is True
 
-    def test_invalid_signature(self):
+    def test_invalid_signature(self, db_path):
         assert _verify_github_signature("secret", b"body", "sha256=wrong") is False
 
 
@@ -210,7 +210,7 @@ class TestHTTPEndpoints:
 
 @pytest.mark.integration
 class TestTenantEnforcement:
-    def test_enforce_tenant_admin_can_cross(self, live_server):
+    def test_enforce_tenant_admin_can_cross(self, db_path, live_server):
         """Admin role can access any tenant."""
         with patch.dict(os.environ, {
             "CONVERGE_AUTH_REQUIRED": "1",
@@ -226,7 +226,7 @@ class TestTenantEnforcement:
             data = json.loads(resp.read())
             assert data["ok"] is True
 
-    def test_enforce_tenant_non_admin_blocked(self, live_server):
+    def test_enforce_tenant_non_admin_blocked(self, db_path, live_server):
         """Non-admin cannot write to another tenant."""
         with patch.dict(os.environ, {
             "CONVERGE_AUTH_REQUIRED": "1",
@@ -283,7 +283,7 @@ class TestWebhook:
             result = self._post_webhook(live_server, payload)
             assert result["ok"] is True
 
-            intent = event_log.get_intent(db_path, "acme/backend:pr-42")
+            intent = event_log.get_intent("acme/backend:pr-42")
             assert intent is not None
             assert intent.source == "feature/x"
             assert intent.technical["repo"] == "acme/backend"
@@ -304,8 +304,8 @@ class TestWebhook:
                 }
                 self._post_webhook(live_server, payload, delivery_id=f"d-{repo}")
 
-            assert event_log.get_intent(db_path, "acme/frontend:pr-1") is not None
-            assert event_log.get_intent(db_path, "acme/backend:pr-1") is not None
+            assert event_log.get_intent("acme/frontend:pr-1") is not None
+            assert event_log.get_intent("acme/backend:pr-1") is not None
 
     def test_webhook_idempotency_duplicate_delivery(self, live_server, db_path):
         """Same delivery_id is processed only once."""
@@ -329,11 +329,11 @@ class TestWebhook:
             assert r2["duplicate"] is True
 
             # Only one webhook event recorded
-            events = event_log.query(db_path, event_type="webhook.received")
+            events = event_log.query(event_type="webhook.received")
             dup_events = [e for e in events if e["evidence"].get("delivery_id") == "dup-001"]
             assert len(dup_events) == 1
 
-    def test_webhook_rejected_without_secret_in_production(self, live_server):
+    def test_webhook_rejected_without_secret_in_production(self, db_path, live_server):
         """In production mode (auth required), webhooks are rejected when no secret is configured."""
         with patch.dict(os.environ, {"CONVERGE_AUTH_REQUIRED": "1"}):
             payload = {"action": "opened", "repository": {"full_name": "acme/x"},
@@ -365,8 +365,8 @@ class TestTenantIsolationReads:
         """Non-admin user only sees their own tenant's risk policies."""
         with patch.dict(os.environ, {"CONVERGE_AUTH_REQUIRED": "0"}):
             # Seed risk policies for two tenants
-            event_log.upsert_risk_policy(db_path, "team-a", {"max_risk_score": 50})
-            event_log.upsert_risk_policy(db_path, "team-b", {"max_risk_score": 70})
+            event_log.upsert_risk_policy("team-a", {"max_risk_score": 50})
+            event_log.upsert_risk_policy("team-b", {"max_risk_score": 70})
 
         # Non-admin user from team-a
         with patch.dict(os.environ, {
@@ -384,8 +384,8 @@ class TestTenantIsolationReads:
     def test_risk_policy_admin_sees_all(self, live_server, db_path):
         """Admin user sees all tenants' risk policies."""
         with patch.dict(os.environ, {"CONVERGE_AUTH_REQUIRED": "0"}):
-            event_log.upsert_risk_policy(db_path, "team-x", {"max_risk_score": 40})
-            event_log.upsert_risk_policy(db_path, "team-y", {"max_risk_score": 60})
+            event_log.upsert_risk_policy("team-x", {"max_risk_score": 40})
+            event_log.upsert_risk_policy("team-y", {"max_risk_score": 60})
 
         with patch.dict(os.environ, {
             "CONVERGE_AUTH_REQUIRED": "1",

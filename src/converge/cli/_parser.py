@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 
 from converge.cli._helpers import _default_db
+from converge.defaults import DEFAULT_TARGET_BRANCH
 from converge.models import Status
 
 
@@ -14,6 +15,22 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--actor", default="system", help="Actor identity for audit")
     sub = parser.add_subparsers(dest="command")
 
+    _register_intent_commands(sub)
+    _register_queue_commands(sub)
+    _register_risk_commands(sub)
+    _register_health_commands(sub)
+    _register_agent_commands(sub)
+    _register_audit_commands(sub)
+    _register_semantic_commands(sub)
+    _register_review_commands(sub)
+    _register_intake_commands(sub)
+    _register_export_commands(sub)
+    _register_server_commands(sub)
+
+    return parser
+
+
+def _register_intent_commands(sub: argparse._SubParsersAction) -> None:
     # -- intent --
     intent_p = sub.add_parser("intent", help="Intent lifecycle")
     intent_sub = intent_p.add_subparsers(dest="intent_cmd")
@@ -21,11 +38,12 @@ def build_parser() -> argparse.ArgumentParser:
     p = intent_sub.add_parser("create", help="Create intent from JSON file or branch")
     p.add_argument("--file", help="JSON file with intent definition")
     p.add_argument("--from-branch", help="Create intent directly from a branch name")
-    p.add_argument("--target", help="Target branch (default: main)", default="main")
+    p.add_argument("--target", help="Target branch (default: main)", default=DEFAULT_TARGET_BRANCH)
     p.add_argument("--intent-id", help="Custom intent ID")
     p.add_argument("--risk-level", choices=["low", "medium", "high", "critical"])
     p.add_argument("--priority", type=int)
     p.add_argument("--tenant-id")
+    p.add_argument("--origin-type", choices=["human", "agent", "integration"], default="human")
 
     p = intent_sub.add_parser("list", help="List intents")
     p.add_argument("--status", choices=[s.value for s in Status])
@@ -56,13 +74,15 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--intent-id", required=True)
     p.add_argument("--merged-commit")
 
+
+def _register_queue_commands(sub: argparse._SubParsersAction) -> None:
     # -- queue --
     queue_p = sub.add_parser("queue", help="Queue operations")
     queue_sub = queue_p.add_subparsers(dest="queue_cmd")
 
     p = queue_sub.add_parser("run", help="Process merge queue")
     p.add_argument("--limit", type=int, default=20)
-    p.add_argument("--target", default="main")
+    p.add_argument("--target", default=DEFAULT_TARGET_BRANCH)
     p.add_argument("--auto-confirm", action="store_true")
     p.add_argument("--max-retries", type=int, default=3)
     p.add_argument("--use-last-simulation", action="store_true")
@@ -93,6 +113,8 @@ def build_parser() -> argparse.ArgumentParser:
     p = policy_sub.add_parser("calibrate", help="Calibrate profiles from history")
     p.add_argument("--output")
 
+
+def _register_risk_commands(sub: argparse._SubParsersAction) -> None:
     # -- risk --
     risk_p = sub.add_parser("risk", help="Risk operations")
     risk_sub = risk_p.add_subparsers(dest="risk_cmd")
@@ -123,6 +145,8 @@ def build_parser() -> argparse.ArgumentParser:
     p = risk_sub.add_parser("policy-get", help="Get risk policy for tenant")
     p.add_argument("--tenant-id", required=True)
 
+
+def _register_health_commands(sub: argparse._SubParsersAction) -> None:
     # -- health --
     health_p = sub.add_parser("health", help="Health monitoring")
     health_sub = health_p.add_subparsers(dest="health_cmd")
@@ -173,6 +197,19 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = comp_sub.add_parser("threshold-list", help="List all compliance thresholds")
 
+    # -- verification --
+    ver_p = sub.add_parser("verification", help="Verification debt")
+    ver_sub = ver_p.add_subparsers(dest="verification_cmd")
+
+    p = ver_sub.add_parser("debt", help="Current verification debt score")
+    p.add_argument("--tenant-id")
+
+    # -- predictions --
+    p = sub.add_parser("predictions", help="Predict issues from trends")
+    p.add_argument("--tenant-id")
+
+
+def _register_agent_commands(sub: argparse._SubParsersAction) -> None:
     # -- agent --
     agent_p = sub.add_parser("agent", help="Agent authorization")
     agent_sub = agent_p.add_subparsers(dest="agent_cmd")
@@ -202,6 +239,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--tenant-id")
     p.add_argument("--human-approvals", type=int, default=0)
 
+
+def _register_audit_commands(sub: argparse._SubParsersAction) -> None:
     # -- audit --
     audit_p = sub.add_parser("audit", help="Audit operations")
     audit_sub = audit_p.add_subparsers(dest="audit_cmd")
@@ -210,6 +249,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--retention-days", type=int, default=90)
     p.add_argument("--tenant-id")
     p.add_argument("--dry-run", action="store_true")
+
+    p = audit_sub.add_parser("init-chain", help="Initialize event tamper-evidence chain")
+
+    p = audit_sub.add_parser("verify-chain", help="Verify event chain integrity")
 
     p = audit_sub.add_parser("events", help="Query event log")
     p.add_argument("--type")
@@ -224,11 +267,136 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--tenant-id")
 
     # -- archaeology --
-    p = sub.add_parser("archaeology", help="Git history analysis")
+    arch_p = sub.add_parser("archaeology", help="Git history analysis")
+    arch_sub = arch_p.add_subparsers(dest="archaeology_cmd")
+
+    p = arch_sub.add_parser("report", help="Run archaeology report")
     p.add_argument("--max-commits", type=int, default=400)
     p.add_argument("--top", type=int, default=20)
     p.add_argument("--write-snapshot")
 
+    p = arch_sub.add_parser("refresh", help="Refresh snapshot and validate")
+    p.add_argument("--max-commits", type=int, default=400)
+    p.add_argument("--output")
+
+
+def _register_semantic_commands(sub: argparse._SubParsersAction) -> None:
+    # -- semantic --
+    sem_p = sub.add_parser("semantic", help="Semantic processing")
+    sem_sub = sem_p.add_subparsers(dest="semantic_cmd")
+
+    p = sem_sub.add_parser("status", help="Embedding coverage status")
+    p.add_argument("--tenant-id")
+    p.add_argument("--model")
+
+    p = sem_sub.add_parser("index", help="Index a single intent")
+    p.add_argument("--intent-id", required=True)
+    p.add_argument("--provider", default="deterministic")
+    p.add_argument("--force", action="store_true")
+
+    p = sem_sub.add_parser("reindex", help="Reindex all embeddings")
+    p.add_argument("--tenant-id")
+    p.add_argument("--provider", default="deterministic")
+    p.add_argument("--force", action="store_true")
+    p.add_argument("--dry-run", action="store_true")
+
+    p = sem_sub.add_parser("conflicts", help="Scan for semantic conflicts")
+    p.add_argument("--tenant-id")
+    p.add_argument("--target", help="Filter by target branch")
+    p.add_argument("--model", default="deterministic-v1")
+    p.add_argument("--similarity-threshold", type=float, default=0.70)
+    p.add_argument("--conflict-threshold", type=float, default=0.60)
+    p.add_argument("--mode", choices=["shadow", "enforce"], default="shadow")
+
+    p = sem_sub.add_parser("conflict-list", help="List active (unresolved) conflicts")
+    p.add_argument("--tenant-id")
+    p.add_argument("--limit", type=int, default=50)
+
+    p = sem_sub.add_parser("conflict-resolve", help="Resolve a conflict pair")
+    p.add_argument("--intent-a", required=True)
+    p.add_argument("--intent-b", required=True)
+    p.add_argument("--resolution", default="acknowledged")
+    p.add_argument("--tenant-id")
+
+
+def _register_review_commands(sub: argparse._SubParsersAction) -> None:
+    # -- review --
+    rev_p = sub.add_parser("review", help="Review task operations")
+    rev_sub = rev_p.add_subparsers(dest="review_cmd")
+
+    p = rev_sub.add_parser("request", help="Request review for an intent")
+    p.add_argument("--intent-id", required=True)
+    p.add_argument("--reviewer")
+    p.add_argument("--trigger", default="manual", choices=["policy", "conflict", "manual"])
+    p.add_argument("--priority", type=int)
+    p.add_argument("--tenant-id")
+
+    p = rev_sub.add_parser("list", help="List review tasks")
+    p.add_argument("--intent-id")
+    p.add_argument("--status", choices=["pending", "assigned", "in_review", "escalated", "completed", "cancelled"])
+    p.add_argument("--reviewer")
+    p.add_argument("--tenant-id")
+    p.add_argument("--limit", type=int, default=50)
+
+    p = rev_sub.add_parser("assign", help="Assign review to reviewer")
+    p.add_argument("--task-id", required=True)
+    p.add_argument("--reviewer", required=True)
+
+    p = rev_sub.add_parser("complete", help="Complete a review")
+    p.add_argument("--task-id", required=True)
+    p.add_argument("--resolution", required=True, choices=["approved", "rejected", "deferred"])
+    p.add_argument("--notes", default="")
+
+    p = rev_sub.add_parser("cancel", help="Cancel a review")
+    p.add_argument("--task-id", required=True)
+    p.add_argument("--reason", default="")
+
+    p = rev_sub.add_parser("escalate", help="Escalate a review")
+    p.add_argument("--task-id", required=True)
+    p.add_argument("--reason", default="manual_escalation")
+
+    p = rev_sub.add_parser("sla-check", help="Check for SLA breaches")
+    p.add_argument("--tenant-id")
+
+    p = rev_sub.add_parser("summary", help="Review summary for dashboard")
+    p.add_argument("--tenant-id")
+
+
+def _register_intake_commands(sub: argparse._SubParsersAction) -> None:
+    # -- intake --
+    intake_p = sub.add_parser("intake", help="Intake control")
+    intake_sub = intake_p.add_subparsers(dest="intake_cmd")
+
+    p = intake_sub.add_parser("status", help="Current intake mode and health signals")
+    p.add_argument("--tenant-id")
+
+    p = intake_sub.add_parser("set-mode", help="Manually override intake mode")
+    p.add_argument("mode", choices=["open", "throttle", "pause", "auto"])
+    p.add_argument("--tenant-id")
+    p.add_argument("--reason", default="")
+
+    # -- security --
+    sec_p = sub.add_parser("security", help="Security scanning")
+    sec_sub = sec_p.add_subparsers(dest="security_cmd")
+
+    p = sec_sub.add_parser("scan", help="Run security scan")
+    p.add_argument("--path", default=".", help="Path to scan")
+    p.add_argument("--intent-id")
+    p.add_argument("--tenant-id")
+
+    p = sec_sub.add_parser("findings", help="List security findings")
+    p.add_argument("--intent-id")
+    p.add_argument("--scanner")
+    p.add_argument("--severity", choices=["critical", "high", "medium", "low", "info"])
+    p.add_argument("--category", choices=["sast", "sca", "secrets"])
+    p.add_argument("--tenant-id")
+    p.add_argument("--limit", type=int, default=100)
+
+    p = sec_sub.add_parser("summary", help="Security findings summary")
+    p.add_argument("--tenant-id")
+
+
+def _register_export_commands(sub: argparse._SubParsersAction) -> None:
     # -- export --
     export_p = sub.add_parser("export", help="Export data")
     export_sub = export_p.add_subparsers(dest="export_cmd")
@@ -238,10 +406,17 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--tenant-id")
     p.add_argument("--format", choices=["jsonl", "csv"], default="jsonl")
 
-    # -- predictions --
-    p = sub.add_parser("predictions", help="Predict issues from trends")
+    # -- harness --
+    p = sub.add_parser("harness", help="Pre-evaluation harness")
+    harness_sub = p.add_subparsers(dest="harness_cmd")
+
+    p = harness_sub.add_parser("evaluate", help="Pre-evaluate a draft intent")
+    p.add_argument("--file", required=True, help="JSON file with draft intent data")
+    p.add_argument("--mode", choices=["shadow", "enforce"], default="shadow")
     p.add_argument("--tenant-id")
 
+
+def _register_server_commands(sub: argparse._SubParsersAction) -> None:
     # -- serve --
     p = sub.add_parser("serve", help="Start HTTP API server")
     p.add_argument("--host", default="127.0.0.1")
@@ -250,5 +425,3 @@ def build_parser() -> argparse.ArgumentParser:
 
     # -- worker --
     sub.add_parser("worker", help="Start queue worker process")
-
-    return parser

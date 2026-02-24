@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 from converge import event_log
-from converge.models import EventType, HealthSnapshot, now_iso
+from converge.defaults import QUERY_LIMIT_LARGE, QUERY_LIMIT_MEDIUM
+from converge.models import EventType, Status, now_iso
+from converge.projections_models import HealthSnapshot
 from converge.projections._time import _safe_avg, _since_days, _since_hours
 from converge.projections.learning import derive_change_learning, derive_health_learning
 
@@ -22,8 +23,6 @@ _W_CHANGE_RISK = 0.5    # weight: risk_score impact on change health
 _W_CHANGE_ENTROPY = 0.3 # weight: entropy impact on change health
 _W_CHANGE_CONFLICT = 30  # penalty if not mergeable
 _HIGH_CONFIDENCE_SNAPSHOTS = 7
-_HEALTH_QUERY_LIMIT = 10000     # max events per health query
-_PREDICTION_QUERY_LIMIT = 500   # max snapshots for prediction
 
 # --- Prediction velocity thresholds ---
 _PREDICT_HEALTH_DECLINE_MED = -5    # health velocity below this → medium signal
@@ -43,29 +42,28 @@ def _health_status(score: float) -> str:
 
 
 def repo_health(
-    db_path: str | Path,
     tenant_id: str | None = None,
     window_hours: int = 24,
 ) -> HealthSnapshot:
     """Compute repo health from recent events."""
     since = _since_hours(window_hours)
 
-    sims = event_log.query(db_path, event_type=EventType.SIMULATION_COMPLETED, tenant_id=tenant_id, since=since, limit=_HEALTH_QUERY_LIMIT)
+    sims = event_log.query(event_type=EventType.SIMULATION_COMPLETED, tenant_id=tenant_id, since=since, limit=QUERY_LIMIT_LARGE)
     total_sims = len(sims)
     mergeable_sims = sum(1 for s in sims if s["payload"].get("mergeable"))
     mergeable_rate = (mergeable_sims / total_sims) if total_sims > 0 else 1.0
     conflict_rate = 1.0 - mergeable_rate
 
-    merged = event_log.query(db_path, event_type=EventType.INTENT_MERGED, tenant_id=tenant_id, since=since, limit=_HEALTH_QUERY_LIMIT)
-    rejected = event_log.query(db_path, event_type=EventType.INTENT_REJECTED, tenant_id=tenant_id, since=since, limit=_HEALTH_QUERY_LIMIT)
+    merged = event_log.query(event_type=EventType.INTENT_MERGED, tenant_id=tenant_id, since=since, limit=QUERY_LIMIT_LARGE)
+    rejected = event_log.query(event_type=EventType.INTENT_REJECTED, tenant_id=tenant_id, since=since, limit=QUERY_LIMIT_LARGE)
 
-    risk_events = event_log.query(db_path, event_type=EventType.RISK_EVALUATED, tenant_id=tenant_id, since=since, limit=_HEALTH_QUERY_LIMIT)
+    risk_events = event_log.query(event_type=EventType.RISK_EVALUATED, tenant_id=tenant_id, since=since, limit=QUERY_LIMIT_LARGE)
     avg_entropy = 0.0
     if risk_events:
         avg_entropy = sum(e["payload"].get("entropy_score", 0) for e in risk_events) / len(risk_events)
 
-    active = event_log.list_intents(db_path, tenant_id=tenant_id, limit=_HEALTH_QUERY_LIMIT)
-    active_count = sum(1 for i in active if i.status.value in ("READY", "VALIDATED", "QUEUED"))
+    active = event_log.list_intents(tenant_id=tenant_id, limit=QUERY_LIMIT_LARGE)
+    active_count = sum(1 for i in active if i.status in (Status.READY, Status.VALIDATED, Status.QUEUED))
 
     # Compute health score: 100 = perfect, 0 = critical
     health_score = 100.0
@@ -89,7 +87,7 @@ def repo_health(
         learning=derive_health_learning(health_score, mergeable_rate, avg_entropy, len(rejected)),
     )
 
-    event_log.append(db_path, event_log.Event(
+    event_log.append(event_log.Event(
         event_type=EventType.HEALTH_SNAPSHOT,
         tenant_id=tenant_id,
         payload=snapshot.to_dict(),
@@ -99,14 +97,13 @@ def repo_health(
 
 
 def change_health(
-    db_path: str | Path,
     intent_id: str,
     tenant_id: str | None = None,
 ) -> dict[str, Any]:
     """Compute health for a specific change/intent."""
-    risk_events = event_log.query(db_path, event_type=EventType.RISK_EVALUATED, intent_id=intent_id, limit=1)
-    sim_events = event_log.query(db_path, event_type=EventType.SIMULATION_COMPLETED, intent_id=intent_id, limit=1)
-    policy_events = event_log.query(db_path, event_type=EventType.POLICY_EVALUATED, intent_id=intent_id, limit=1)
+    risk_events = event_log.query(event_type=EventType.RISK_EVALUATED, intent_id=intent_id, limit=1)
+    sim_events = event_log.query(event_type=EventType.SIMULATION_COMPLETED, intent_id=intent_id, limit=1)
+    policy_events = event_log.query(event_type=EventType.POLICY_EVALUATED, intent_id=intent_id, limit=1)
 
     risk_score = risk_events[0]["payload"].get("risk_score", 0) if risk_events else 0
     entropy = risk_events[0]["payload"].get("entropy_score", 0) if risk_events else 0
@@ -129,7 +126,7 @@ def change_health(
         "learning": derive_change_learning(health_score, risk_score, entropy, mergeable),
     }
 
-    event_log.append(db_path, event_log.Event(
+    event_log.append(event_log.Event(
         event_type=EventType.HEALTH_CHANGE_SNAPSHOT,
         intent_id=intent_id,
         tenant_id=tenant_id,
@@ -139,7 +136,6 @@ def change_health(
 
 
 def predict_health(
-    db_path: str | Path,
     tenant_id: str | None = None,
     horizon_days: int = 7,
     min_snapshots: int = 3,
@@ -151,7 +147,7 @@ def predict_health(
     indicates red in the near future, even if current state is green.
     """
     since = _since_days(horizon_days * 2)
-    snapshots = event_log.query(db_path, event_type=EventType.HEALTH_SNAPSHOT, tenant_id=tenant_id, since=since, limit=_PREDICTION_QUERY_LIMIT)
+    snapshots = event_log.query(event_type=EventType.HEALTH_SNAPSHOT, tenant_id=tenant_id, since=since, limit=QUERY_LIMIT_MEDIUM)
     snapshots.sort(key=lambda s: s["timestamp"])
 
     if len(snapshots) < min_snapshots:
@@ -177,7 +173,7 @@ def predict_health(
         len(snapshots), tenant_id,
     )
 
-    event_log.append(db_path, event_log.Event(
+    event_log.append(event_log.Event(
         event_type=EventType.HEALTH_PREDICTION,
         tenant_id=tenant_id,
         payload=result,

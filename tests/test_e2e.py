@@ -84,7 +84,7 @@ class TestE2ECleanMerge:
 
     def test_simulate_clean_merge(self, clean_branch, db_path):
         """Simulation detects a clean merge."""
-        sim = engine.simulate("feature/clean", "main", db_path,
+        sim = engine.simulate("feature/clean", "main",
                               intent_id="e2e-001", cwd=clean_branch)
         assert sim.mergeable is True
         assert len(sim.conflicts) == 0
@@ -101,9 +101,9 @@ class TestE2ECleanMerge:
             priority=2,
             tenant_id="team-e2e",
         )
-        event_log.upsert_intent(db_path, intent)
+        event_log.upsert_intent(intent)
 
-        result = engine.validate_intent(intent, db_path, skip_checks=True,
+        result = engine.validate_intent(intent, skip_checks=True,
                                         cwd=clean_branch)
         assert result["decision"] == "validated"
         assert result["simulation"]["mergeable"] is True
@@ -111,7 +111,7 @@ class TestE2ECleanMerge:
         assert result["risk"]["risk_score"] >= 0
 
         # Verify intent status changed
-        loaded = event_log.get_intent(db_path, "e2e-clean-001")
+        loaded = event_log.get_intent("e2e-clean-001")
         assert loaded.status == Status.VALIDATED
 
     def test_full_pipeline_validate_queue_merge(self, clean_branch, db_path):
@@ -125,24 +125,24 @@ class TestE2ECleanMerge:
             priority=1,
             tenant_id="team-e2e",
         )
-        event_log.upsert_intent(db_path, intent)
+        event_log.upsert_intent(intent)
 
         # Step 1: Validate
-        result = engine.validate_intent(intent, db_path, skip_checks=True,
+        result = engine.validate_intent(intent, skip_checks=True,
                                         cwd=clean_branch)
         assert result["decision"] == "validated"
 
         # Step 2: Confirm merge
-        merge_result = engine.confirm_merge(db_path, "e2e-pipeline-001",
+        merge_result = engine.confirm_merge("e2e-pipeline-001",
                                             merged_commit="e2e-sha-001")
         assert merge_result["status"] == "MERGED"
 
         # Verify final state
-        loaded = event_log.get_intent(db_path, "e2e-pipeline-001")
+        loaded = event_log.get_intent("e2e-pipeline-001")
         assert loaded.status == Status.MERGED
 
         # Verify event trail
-        events = event_log.query(db_path, intent_id="e2e-pipeline-001", limit=50)
+        events = event_log.query(intent_id="e2e-pipeline-001", limit=50)
         event_types = [e["event_type"] for e in events]
         assert "simulation.completed" in event_types
         assert "risk.evaluated" in event_types
@@ -161,7 +161,7 @@ class TestE2EConflict:
 
     def test_simulate_conflict(self, conflict_branch, db_path):
         """Simulation detects merge conflicts."""
-        sim = engine.simulate("feature/conflict", "main", db_path,
+        sim = engine.simulate("feature/conflict", "main",
                               intent_id="e2e-conflict-001", cwd=conflict_branch)
         assert sim.mergeable is False
         assert len(sim.conflicts) > 0
@@ -177,9 +177,9 @@ class TestE2EConflict:
             priority=2,
             tenant_id="team-e2e",
         )
-        event_log.upsert_intent(db_path, intent)
+        event_log.upsert_intent(intent)
 
-        result = engine.validate_intent(intent, db_path, skip_checks=True,
+        result = engine.validate_intent(intent, skip_checks=True,
                                         cwd=conflict_branch)
         assert result["decision"] == "blocked"
         assert "conflict" in result["reason"].lower()
@@ -205,11 +205,11 @@ class TestE2EQueueRetries:
             priority=2,
             tenant_id="team-e2e",
         )
-        event_log.upsert_intent(db_path, intent)
-        event_log.update_intent_status(db_path, "e2e-retry-001", Status.VALIDATED, retries=3)
+        event_log.upsert_intent(intent)
+        event_log.update_intent_status("e2e-retry-001", Status.VALIDATED, retries=3)
 
         results = engine.process_queue(
-            db_path, max_retries=3,
+        max_retries=3,
             use_last_simulation=True,
             skip_checks=True,
             cwd=conflict_branch,
@@ -217,7 +217,7 @@ class TestE2EQueueRetries:
         assert len(results) >= 1
         assert results[0]["decision"] == "rejected"
 
-        loaded = event_log.get_intent(db_path, "e2e-retry-001")
+        loaded = event_log.get_intent("e2e-retry-001")
         assert loaded.status == Status.REJECTED
 
     def test_queue_processes_clean_intent(self, clean_branch, db_path):
@@ -231,11 +231,10 @@ class TestE2EQueueRetries:
             priority=1,
             tenant_id="team-e2e",
         )
-        event_log.upsert_intent(db_path, intent)
+        event_log.upsert_intent(intent)
 
         results = engine.process_queue(
-            db_path,
-            skip_checks=True,
+        skip_checks=True,
             cwd=clean_branch,
         )
         assert len(results) >= 1
@@ -263,9 +262,9 @@ class TestE2ERiskEvaluation:
             technical={"scope_hint": ["src"]},
             tenant_id="team-e2e",
         )
-        event_log.upsert_intent(db_path, intent)
+        event_log.upsert_intent(intent)
 
-        result = engine.validate_intent(intent, db_path, skip_checks=True,
+        result = engine.validate_intent(intent, skip_checks=True,
                                         cwd=clean_branch)
         assert result["decision"] == "validated"
 
@@ -289,17 +288,17 @@ class TestE2ERiskEvaluation:
             priority=1,
             tenant_id="team-e2e",
         )
-        event_log.upsert_intent(db_path, intent)
+        event_log.upsert_intent(intent)
 
-        result = engine.validate_intent(intent, db_path, skip_checks=True,
+        result = engine.validate_intent(intent, skip_checks=True,
                                         cwd=clean_branch)
         trace_id = result["trace_id"]
 
         # All events for this intent should reference the same trace_id
-        risk_events = event_log.query(db_path, event_type="risk.evaluated",
+        risk_events = event_log.query(event_type="risk.evaluated",
                                       intent_id="e2e-trace-001")
         assert risk_events[0]["evidence"]["trace_id"] == trace_id
 
-        policy_events = event_log.query(db_path, event_type="policy.evaluated",
+        policy_events = event_log.query(event_type="policy.evaluated",
                                         intent_id="e2e-trace-001")
         assert policy_events[0]["payload"]["trace_id"] == trace_id

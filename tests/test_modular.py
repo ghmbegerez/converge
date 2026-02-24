@@ -49,7 +49,7 @@ class TestRiskPackageImports:
         assert callable(detect_bombs)
         assert callable(evaluate_risk)
 
-    def test_risk_constants_accessible(self):
+    def test_risk_constants_accessible(self, db_path):
         """Constants accessible from _constants module."""
         from converge.risk._constants import _RISK_BONUS, _CORE_TARGETS
         assert "main" in _CORE_TARGETS
@@ -61,14 +61,14 @@ class TestRiskPackageImports:
 # ---------------------------------------------------------------------------
 
 class TestCLIPackageImports:
-    def test_cli_top_level_exports(self):
+    def test_cli_top_level_exports(self, db_path):
         """build_parser, main, _out accessible from converge.cli."""
         from converge.cli import build_parser, main, _out
         assert callable(build_parser)
         assert callable(main)
         assert callable(_out)
 
-    def test_cli_submodule_direct_import(self):
+    def test_cli_submodule_direct_import(self, db_path):
         """Submodules importable directly."""
         from converge.cli.intents import cmd_intent_create
         from converge.cli.queue import cmd_queue_run
@@ -79,7 +79,7 @@ class TestCLIPackageImports:
         assert callable(cmd_risk_eval)
         assert callable(cmd_serve)
 
-    def test_cli_dispatch_has_all_commands(self):
+    def test_cli_dispatch_has_all_commands(self, db_path):
         """Dispatch table covers all expected commands."""
         from converge.cli import _DISPATCH
         expected_keys = [
@@ -100,7 +100,7 @@ class TestCLIPackageImports:
         for key in expected_keys:
             assert key in _DISPATCH, f"Missing dispatch key: {key}"
 
-    def test_main_entry_point(self):
+    def test_main_entry_point(self, db_path):
         """__main__.py references converge.cli.main."""
         import importlib
         spec = importlib.util.find_spec("converge.__main__")

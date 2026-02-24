@@ -38,6 +38,25 @@ def store(tmp_path):
     return SqliteStore(path)
 
 
+def make_intent(id, **kw):
+    """Shared test helper: create an Intent, persist it, return it.
+
+    Usage::
+
+        from conftest import make_intent
+        intent = make_intent("my-001", risk_level=RiskLevel.HIGH)
+    """
+    defaults = dict(
+        source="feature/x", target="main",
+        status=Status.READY, risk_level=RiskLevel.MEDIUM,
+        priority=2, tenant_id="team-a",
+    )
+    defaults.update(kw)
+    intent = Intent(id=id, **defaults)
+    event_log.upsert_intent(intent)
+    return intent
+
+
 @pytest.fixture
 def sample_intent() -> Intent:
     return Intent(

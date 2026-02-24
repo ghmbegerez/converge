@@ -2,11 +2,11 @@
 
 import json
 
-from converge import analytics, event_log
+from converge import analytics, event_log, exports
 from converge.models import Event, Intent, RiskLevel, Status, now_iso
 
 
-def _seed_full_pipeline(db_path, n=5):
+def _seed_full_pipeline(n=5):
     """Seed intent + simulation + risk + policy events for export tests."""
     for i in range(n):
         intent = Intent(
@@ -18,16 +18,16 @@ def _seed_full_pipeline(db_path, n=5):
             priority=2,
             tenant_id="team-a",
         )
-        event_log.upsert_intent(db_path, intent)
+        event_log.upsert_intent(intent)
 
-        event_log.append(db_path, Event(
+        event_log.append(Event(
             event_type="simulation.completed",
             intent_id=intent.id,
             tenant_id="team-a",
             payload={"mergeable": True, "conflicts": [], "files_changed": [f"f{i}.py"],
                      "source": f"feature/{i}", "target": "main"},
         ))
-        event_log.append(db_path, Event(
+        event_log.append(Event(
             event_type="risk.evaluated",
             intent_id=intent.id,
             tenant_id="team-a",
@@ -46,7 +46,7 @@ def _seed_full_pipeline(db_path, n=5):
                 "bombs": [],
             },
         ))
-        event_log.append(db_path, Event(
+        event_log.append(Event(
             event_type="policy.evaluated",
             intent_id=intent.id,
             tenant_id="team-a",
@@ -56,9 +56,9 @@ def _seed_full_pipeline(db_path, n=5):
 
 class TestExportDecisions:
     def test_export_jsonl(self, db_path, tmp_path):
-        _seed_full_pipeline(db_path)
+        _seed_full_pipeline()
         output = tmp_path / "decisions.jsonl"
-        result = analytics.export_decisions(db_path, output_path=str(output), fmt="jsonl")
+        result = exports.export_decisions(output_path=str(output), fmt="jsonl")
 
         assert result["records"] == 5
         assert result["format"] == "jsonl"
@@ -73,9 +73,9 @@ class TestExportDecisions:
         assert "entropic_load" in record
 
     def test_export_csv(self, db_path, tmp_path):
-        _seed_full_pipeline(db_path)
+        _seed_full_pipeline()
         output = tmp_path / "decisions.csv"
-        result = analytics.export_decisions(db_path, output_path=str(output), fmt="csv")
+        result = exports.export_decisions(output_path=str(output), fmt="csv")
 
         assert result["records"] == 5
         assert output.exists()
@@ -84,25 +84,25 @@ class TestExportDecisions:
         assert "intent_id" in lines[0]
 
     def test_export_records_event(self, db_path, tmp_path):
-        _seed_full_pipeline(db_path)
-        analytics.export_decisions(db_path, output_path=str(tmp_path / "d.jsonl"))
-        events = event_log.query(db_path, event_type="dataset.exported")
+        _seed_full_pipeline()
+        exports.export_decisions(output_path=str(tmp_path / "d.jsonl"))
+        events = event_log.query(event_type="dataset.exported")
         assert len(events) >= 1
 
     def test_export_empty(self, db_path, tmp_path):
         output = tmp_path / "empty.jsonl"
-        result = analytics.export_decisions(db_path, output_path=str(output))
+        result = exports.export_decisions(output_path=str(output))
         assert result["records"] == 0
 
 
 class TestCouplingData:
-    def test_load_coupling_no_data(self, tmp_path):
+    def test_load_coupling_no_data(self, db_path, tmp_path):
         """Returns empty when no archaeology snapshot or git."""
         result = analytics.load_coupling_data(cwd=str(tmp_path))
         assert isinstance(result, list)
         assert len(result) == 0
 
-    def test_load_coupling_from_snapshot(self, tmp_path):
+    def test_load_coupling_from_snapshot(self, db_path, tmp_path):
         """Loads coupling from cached snapshot."""
         snapshot = {
             "coupling": [
@@ -126,7 +126,7 @@ class TestCouplingData:
 
 
 class TestHotspotSet:
-    def test_load_hotspot_from_snapshot(self, tmp_path):
+    def test_load_hotspot_from_snapshot(self, db_path, tmp_path):
         """Loads hotspots from cached snapshot."""
         snapshot = {
             "hotspots": [
@@ -153,13 +153,13 @@ class TestRiskReview:
     """analytics.risk_review() builds a comprehensive per-intent report."""
 
     def test_review_nonexistent_intent(self, db_path):
-        result = analytics.risk_review(db_path, "nonexistent")
+        result = analytics.risk_review("nonexistent")
         assert "error" in result
 
     def test_review_with_full_pipeline_data(self, db_path):
         """Review assembles risk, simulation, policy, diagnostics, and compliance."""
-        _seed_full_pipeline(db_path, n=1)
-        result = analytics.risk_review(db_path, "exp-000", tenant_id="team-a")
+        _seed_full_pipeline(n=1)
+        result = analytics.risk_review("exp-000", tenant_id="team-a")
 
         assert result["intent_id"] == "exp-000"
         assert result["intent"] is not None
@@ -176,8 +176,8 @@ class TestRiskReview:
 
     def test_review_includes_learning_when_risk_data_exists(self, db_path):
         """Review includes learning section with actionable lessons."""
-        _seed_full_pipeline(db_path, n=1)
-        result = analytics.risk_review(db_path, "exp-000")
+        _seed_full_pipeline(n=1)
+        result = analytics.risk_review("exp-000")
 
         assert "learning" in result
         assert "lessons" in result["learning"]
@@ -194,8 +194,8 @@ class TestRiskReview:
             priority=2,
             tenant_id="team-a",
         )
-        event_log.upsert_intent(db_path, intent)
-        result = analytics.risk_review(db_path, "rev-no-sim")
+        event_log.upsert_intent(intent)
+        result = analytics.risk_review("rev-no-sim")
 
         assert result["intent_id"] == "rev-no-sim"
         assert result["simulation"] is None
@@ -208,9 +208,9 @@ class TestRunCalibration:
 
     def test_calibration_with_data(self, db_path, tmp_path):
         """Calibration produces new profiles from historical risk events."""
-        _seed_full_pipeline(db_path, n=20)
+        _seed_full_pipeline(n=20)
         output = tmp_path / "calibrated.json"
-        result = analytics.run_calibration(db_path, output_path=str(output))
+        result = analytics.run_calibration(output_path=str(output))
 
         assert result["data_points"] == 20
         assert "calibrated_profiles" in result
@@ -224,14 +224,14 @@ class TestRunCalibration:
         assert "entropy_budget" in saved["low"]
 
         # Verify calibration event recorded
-        events = event_log.query(db_path, event_type="calibration.completed")
+        events = event_log.query(event_type="calibration.completed")
         assert len(events) == 1
         assert events[0]["payload"]["data_points"] == 20
 
     def test_calibration_no_data(self, db_path, tmp_path):
         """Calibration with no data returns default profiles."""
         output = tmp_path / "calibrated_empty.json"
-        result = analytics.run_calibration(db_path, output_path=str(output))
+        result = analytics.run_calibration(output_path=str(output))
 
         assert result["data_points"] == 0
         assert output.exists()
@@ -240,7 +240,7 @@ class TestRunCalibration:
 class TestSaveArchaeologySnapshot:
     """analytics.save_archaeology_snapshot() persists report to disk."""
 
-    def test_save_and_load(self, tmp_path):
+    def test_save_and_load(self, db_path, tmp_path):
         report = {
             "commits_analyzed": 100,
             "hotspots": [{"file": "core.py", "changes": 25}],

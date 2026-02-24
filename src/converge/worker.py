@@ -14,6 +14,8 @@ Configuration (env vars):
     CONVERGE_WORKER_MAX_RETRIES     — per-intent retry limit (default 3)
     CONVERGE_WORKER_TARGET          — target branch (default "main")
     CONVERGE_WORKER_AUTO_CONFIRM    — "1" to auto-merge (default "0")
+    CONVERGE_WORKER_SKIP_CHECKS     — "1" to skip checks (default "1")
+    CONVERGE_WORKER_FRESH_SIMULATION — "1" to force fresh simulation per poll (default "0")
 
 GitHub integration (optional):
     CONVERGE_GITHUB_APP_ID          — enables GitHub publishing
@@ -26,7 +28,6 @@ import asyncio
 import logging
 import os
 import signal
-import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -34,6 +35,7 @@ from typing import Any
 import httpx
 
 from converge import engine, event_log
+from converge.defaults import DEFAULT_TARGET_BRANCH
 from converge.models import Event, EventType
 
 log = logging.getLogger("converge.worker")
@@ -50,8 +52,10 @@ class WorkerConfig:
         self.poll_interval = int(os.environ.get("CONVERGE_WORKER_POLL_INTERVAL", "5"))
         self.batch_size = int(os.environ.get("CONVERGE_WORKER_BATCH_SIZE", "20"))
         self.max_retries = int(os.environ.get("CONVERGE_WORKER_MAX_RETRIES", "3"))
-        self.target = os.environ.get("CONVERGE_WORKER_TARGET", "main")
+        self.target = os.environ.get("CONVERGE_WORKER_TARGET", DEFAULT_TARGET_BRANCH)
         self.auto_confirm = os.environ.get("CONVERGE_WORKER_AUTO_CONFIRM", "0") == "1"
+        self.skip_checks = os.environ.get("CONVERGE_WORKER_SKIP_CHECKS", "1") == "1"
+        self.use_last_simulation = os.environ.get("CONVERGE_WORKER_FRESH_SIMULATION", "0") != "1"
         self.db_path = os.environ.get("CONVERGE_DB_PATH", str(Path(".converge") / "state.db"))
         # GitHub publishing (optional)
         self.github_app_id = os.environ.get("CONVERGE_GITHUB_APP_ID", "")
@@ -82,18 +86,21 @@ class QueueWorker:
         self._install_signal_handlers()
 
         log.info(
-            "Worker starting — poll=%ds batch=%d target=%s auto_confirm=%s github=%s",
+            "Worker starting — poll=%ds batch=%d target=%s auto_confirm=%s "
+            "skip_checks=%s use_last_simulation=%s github=%s",
             self.config.poll_interval,
             self.config.batch_size,
             self.config.target,
             self.config.auto_confirm,
+            self.config.skip_checks,
+            self.config.use_last_simulation,
             self.config.github_enabled,
         )
 
         # Initialise event store
         event_log.init(self.config.db_path)
 
-        event_log.append(self.config.db_path, Event(
+        event_log.append(Event(
             event_type=EventType.WORKER_STARTED,
             payload={
                 "poll_interval": self.config.poll_interval,
@@ -141,13 +148,12 @@ class QueueWorker:
         self._cycles += 1
         try:
             results = engine.process_queue(
-                self.config.db_path,
                 limit=self.config.batch_size,
                 target=self.config.target,
                 auto_confirm=self.config.auto_confirm,
                 max_retries=self.config.max_retries,
-                skip_checks=True,           # worker revalidates but skips heavy checks
-                use_last_simulation=True,    # reuse existing simulations
+                skip_checks=self.config.skip_checks,
+                use_last_simulation=self.config.use_last_simulation,
             )
         except Exception:
             log.exception("Error during queue processing (cycle %d)", self._cycles)
@@ -180,7 +186,7 @@ class QueueWorker:
                 if not intent_id or not decision:
                     continue
 
-                intent = event_log.get_intent(self.config.db_path, intent_id)
+                intent = event_log.get_intent(intent_id)
                 if not intent:
                     log.warning("Intent %s not found — skipping GitHub publish", intent_id)
                     continue
@@ -204,7 +210,6 @@ class QueueWorker:
                     installation_id=intent.technical.get("installation_id"),
                     fallback_installation_id=self.config.github_installation_id,
                     client=client,
-                    db_path=self.config.db_path,
                 )
 
     def _shutdown(self) -> None:
@@ -216,11 +221,11 @@ class QueueWorker:
         )
         # Force-release lock in case we hold it
         try:
-            event_log.force_release_queue_lock(self.config.db_path)
+            event_log.force_release_queue_lock()
         except Exception:
             log.debug("Could not release queue lock during shutdown")
 
-        event_log.append(self.config.db_path, Event(
+        event_log.append(Event(
             event_type=EventType.WORKER_STOPPED,
             payload={
                 "cycles": self._cycles,
@@ -247,15 +252,13 @@ class QueueWorker:
 # Entry point
 # ---------------------------------------------------------------------------
 
-def run_worker(db_path: str | None = None) -> None:
+def run_worker() -> None:
     """Start the worker (blocking). For CLI / __main__."""
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
     )
     config = WorkerConfig()
-    if db_path:
-        config.db_path = db_path
     worker = QueueWorker(config)
     worker.start()
 

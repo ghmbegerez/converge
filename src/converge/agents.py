@@ -12,7 +12,6 @@ interact with the system. Each agent has a policy defining:
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any
 
 from converge import event_log, projections
@@ -32,16 +31,16 @@ DEFAULT_POLICY = AgentPolicy(
 )
 
 
-def get_policy(db_path: str | Path, agent_id: str, tenant_id: str | None = None) -> AgentPolicy:
-    data = event_log.get_agent_policy(db_path, agent_id, tenant_id)
+def get_policy(agent_id: str, tenant_id: str | None = None) -> AgentPolicy:
+    data = event_log.get_agent_policy(agent_id, tenant_id)
     if data is None:
         return AgentPolicy(agent_id=agent_id, tenant_id=tenant_id)
     return AgentPolicy.from_dict(data)
 
 
-def set_policy(db_path: str | Path, policy: AgentPolicy) -> dict[str, Any]:
-    event_log.upsert_agent_policy(db_path, policy.to_dict())
-    event_log.append(db_path, Event(
+def set_policy(policy: AgentPolicy) -> dict[str, Any]:
+    event_log.upsert_agent_policy(policy.to_dict())
+    event_log.append(Event(
         event_type=EventType.AGENT_POLICY_UPDATED,
         agent_id=policy.agent_id,
         tenant_id=policy.tenant_id,
@@ -50,12 +49,11 @@ def set_policy(db_path: str | Path, policy: AgentPolicy) -> dict[str, Any]:
     return policy.to_dict()
 
 
-def list_policies(db_path: str | Path, tenant_id: str | None = None) -> list[dict[str, Any]]:
-    return event_log.list_agent_policies(db_path, tenant_id=tenant_id)
+def list_policies(tenant_id: str | None = None) -> list[dict[str, Any]]:
+    return event_log.list_agent_policies(tenant_id=tenant_id)
 
 
 def authorize(
-    db_path: str | Path,
     *,
     agent_id: str,
     action: str,
@@ -64,8 +62,8 @@ def authorize(
     human_approvals: int = 0,
 ) -> dict[str, Any]:
     """Evaluate if an agent can execute an action on an intent."""
-    pol = get_policy(db_path, agent_id, tenant_id)
-    intent = event_log.get_intent(db_path, intent_id)
+    pol = get_policy(agent_id, tenant_id)
+    intent = event_log.get_intent(intent_id)
     reasons: list[str] = []
     allowed = True
 
@@ -95,7 +93,7 @@ def authorize(
 
     # Check risk
     if intent:
-        risk_events = event_log.query(db_path, event_type=EventType.RISK_EVALUATED, intent_id=intent_id, limit=1)
+        risk_events = event_log.query(event_type=EventType.RISK_EVALUATED, intent_id=intent_id, limit=1)
         if risk_events:
             risk_score = risk_events[0]["payload"].get("risk_score", 0)
             if risk_score > effective_limits["max_risk_score"]:
@@ -112,7 +110,7 @@ def authorize(
 
         # Compliance check
         if pol.require_compliance_pass:
-            compliance = projections.compliance_report(db_path, tenant_id=tenant_id)
+            compliance = projections.compliance_report(tenant_id=tenant_id)
             if not compliance.passed:
                 reasons.append("Compliance check not passing")
                 allowed = False
@@ -140,7 +138,7 @@ def authorize(
         "timestamp": now_iso(),
     }
 
-    event_log.append(db_path, Event(
+    event_log.append(Event(
         event_type=EventType.AGENT_AUTHORIZED,
         agent_id=agent_id,
         intent_id=intent_id,

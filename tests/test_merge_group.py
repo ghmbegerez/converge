@@ -94,7 +94,7 @@ class TestMergeGroupChecksRequested:
         assert result["action"] == "merge_group_checks_requested"
         assert result["intent_id"] == "acme/backend:mg-abc123def456"
 
-        intent = event_log.get_intent(db_path, "acme/backend:mg-abc123def456")
+        intent = event_log.get_intent("acme/backend:mg-abc123def456")
         assert intent is not None
         assert intent.status == Status.READY
         assert intent.created_by == "github-merge-queue"
@@ -121,7 +121,7 @@ class TestMergeGroupChecksRequested:
             delivery_id="mg-inst-1",
         )
 
-        intent = event_log.get_intent(db_path, "acme/backend:mg-def456789012")
+        intent = event_log.get_intent("acme/backend:mg-def456789012")
         assert intent.technical["installation_id"] == 88888
 
     def test_checks_requested_stores_merge_group_ref(self, live_server, db_path):
@@ -143,11 +143,11 @@ class TestMergeGroupChecksRequested:
             delivery_id="mg-ref-1",
         )
 
-        intent = event_log.get_intent(db_path, "acme/frontend:mg-xyz999888777")
+        intent = event_log.get_intent("acme/frontend:mg-xyz999888777")
         assert intent.technical["merge_group_head_ref"] == head_ref
         assert intent.target == "develop"
 
-    def test_checks_requested_idempotent(self, live_server):
+    def test_checks_requested_idempotent(self, db_path, live_server):
         """Same delivery_id returns duplicate=true on replay."""
         payload = {
             "action": "checks_requested",
@@ -197,7 +197,7 @@ class TestMergeGroupDestroyed:
             delivery_id="mg-d-create",
         )
 
-        intent = event_log.get_intent(db_path, "acme/api:mg-bbb444555666")
+        intent = event_log.get_intent("acme/api:mg-bbb444555666")
         assert intent.status == Status.READY
 
         # Now destroy it
@@ -220,10 +220,10 @@ class TestMergeGroupDestroyed:
         assert result["ok"] is True
         assert result["action"] == "merge_group_destroyed"
 
-        intent = event_log.get_intent(db_path, "acme/api:mg-bbb444555666")
+        intent = event_log.get_intent("acme/api:mg-bbb444555666")
         assert intent.status == Status.REJECTED
 
-    def test_destroyed_unknown_intent_ignored(self, live_server):
+    def test_destroyed_unknown_intent_ignored(self, db_path, live_server):
         """destroyed for unknown intent does not fail."""
         result = _webhook(
             f"{live_server}/integrations/github/webhook",
@@ -281,7 +281,7 @@ class TestMergeGroupDestroyed:
             delivery_id="mg-reason-destroy",
         )
 
-        events = event_log.query(db_path, event_type="merge_group.destroyed")
+        events = event_log.query(event_type="merge_group.destroyed")
         assert len(events) >= 1
         payload = events[-1]["payload"]
         assert payload["reason"] == "merge_conflict"

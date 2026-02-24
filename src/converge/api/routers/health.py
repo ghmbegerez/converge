@@ -20,9 +20,8 @@ def health():
 @router.get("/health/ready")
 def health_ready(request: Request):
     """Readiness probe — verifies the database is accessible."""
-    db_path = request.app.state.db_path
     try:
-        event_log.count(db_path)
+        event_log.count()
         return {"status": "ok", "timestamp": now_iso()}
     except Exception as e:
         return JSONResponse(

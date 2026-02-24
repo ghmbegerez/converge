@@ -87,13 +87,13 @@ def _post_json(url: str, data: dict, headers: dict | None = None) -> tuple[int, 
 
 
 # ---------------------------------------------------------------------------
-# Load tests
+# Load tests — Baseline (S8)
 # ---------------------------------------------------------------------------
 
 @pytest.mark.integration
 class TestLoadMultiTenant:
 
-    def test_concurrent_health_throughput(self, load_server):
+    def test_concurrent_health_throughput(self, db_path, load_server):
         """50 concurrent health requests complete with P99 < 500ms and 0% errors."""
         n_requests = 50
         n_workers = 10
@@ -131,7 +131,7 @@ class TestLoadMultiTenant:
                     tenant_id=t,
                     technical={"initial_base_commit": f"sha-{i}"},
                 )
-                event_log.upsert_intent(db_path, intent)
+                event_log.upsert_intent(intent)
 
         n_requests = 30
         n_workers = 10
@@ -165,7 +165,7 @@ class TestLoadMultiTenant:
                 created_by="load-test",
                 technical={"initial_base_commit": f"sha-{i}"},
             )
-            event_log.upsert_intent(db_path, intent)
+            event_log.upsert_intent(intent)
 
         endpoints = [
             f"{load_server}/health",
@@ -197,7 +197,7 @@ class TestLoadMultiTenant:
         assert error_rate < 0.05, f"Error rate {error_rate:.1%} exceeds 5%"
         assert p99 < 2000, f"P99 {p99:.1f}ms exceeds 2000ms"
 
-    def test_concurrent_webhook_throughput(self, load_server):
+    def test_concurrent_webhook_throughput(self, db_path, load_server):
         """30 concurrent webhook POSTs — all succeed, throughput > 5 req/s."""
         n_requests = 30
         n_workers = 10
@@ -277,3 +277,236 @@ class TestLoadMultiTenant:
                 server.should_exit = True
                 thread.join(timeout=5)
                 reset_limiter()
+
+
+# ---------------------------------------------------------------------------
+# AR-24: Load tests for Phase 5-8 endpoints
+# ---------------------------------------------------------------------------
+
+@pytest.mark.integration
+class TestLoadPhase5to8Endpoints:
+    """Load validation for endpoints added in Phases 5-8."""
+
+    def test_verification_debt_concurrent(self, load_server, db_path):
+        """Phase 5: 20 concurrent verification/debt requests — P95 < 1000ms."""
+        # Seed some intents for debt calculation
+        for i in range(10):
+            intent = Intent(
+                id=f"debt-{i}", source=f"feature/debt-{i}", target="main",
+                status=Status.READY, created_by="load-test",
+                technical={"initial_base_commit": f"sha-{i}"},
+            )
+            event_log.upsert_intent(intent)
+
+        n_requests = 20
+        url = f"{load_server}/api/verification/debt"
+        latencies: list[float] = []
+        errors = 0
+
+        with ThreadPoolExecutor(max_workers=10) as pool:
+            futures = [pool.submit(_get, url) for _ in range(n_requests)]
+            for f in as_completed(futures):
+                status, latency = f.result()
+                latencies.append(latency)
+                if status != 200:
+                    errors += 1
+
+        p95 = sorted(latencies)[int(n_requests * 0.95)]
+        assert errors == 0, f"Debt endpoint had {errors} errors"
+        assert p95 < 1000, f"P95 latency {p95:.1f}ms exceeds 1000ms"
+
+    def test_reviews_listing_concurrent(self, load_server, db_path):
+        """Phase 6: 20 concurrent reviews list requests — P95 < 1000ms."""
+        # Seed review tasks
+        from converge.reviews import request_review
+        for i in range(5):
+            intent = Intent(
+                id=f"rev-load-{i}", source=f"feature/rev-{i}", target="main",
+                status=Status.READY, created_by="load-test",
+                technical={"initial_base_commit": f"sha-{i}"},
+            )
+            event_log.upsert_intent(intent)
+            request_review(f"rev-load-{i}")
+
+        n_requests = 20
+        url = f"{load_server}/api/reviews"
+        latencies: list[float] = []
+        errors = 0
+
+        with ThreadPoolExecutor(max_workers=10) as pool:
+            futures = [pool.submit(_get, url) for _ in range(n_requests)]
+            for f in as_completed(futures):
+                status, latency = f.result()
+                latencies.append(latency)
+                if status != 200:
+                    errors += 1
+
+        p95 = sorted(latencies)[int(n_requests * 0.95)]
+        assert errors == 0, f"Reviews list had {errors} errors"
+        assert p95 < 1000, f"P95 latency {p95:.1f}ms exceeds 1000ms"
+
+    def test_reviews_summary_concurrent(self, load_server, db_path):
+        """Phase 6: 20 concurrent reviews/summary requests."""
+        n_requests = 20
+        url = f"{load_server}/api/reviews/summary"
+        latencies: list[float] = []
+        errors = 0
+
+        with ThreadPoolExecutor(max_workers=10) as pool:
+            futures = [pool.submit(_get, url) for _ in range(n_requests)]
+            for f in as_completed(futures):
+                status, latency = f.result()
+                latencies.append(latency)
+                if status != 200:
+                    errors += 1
+
+        p95 = sorted(latencies)[int(n_requests * 0.95)]
+        assert errors == 0, f"Reviews summary had {errors} errors"
+        assert p95 < 1000, f"P95 {p95:.1f}ms exceeds 1000ms"
+
+    def test_security_findings_concurrent(self, load_server):
+        """Phase 7: 20 concurrent security/findings requests — P95 < 1000ms."""
+        n_requests = 20
+        url = f"{load_server}/api/security/findings"
+        latencies: list[float] = []
+        errors = 0
+
+        with ThreadPoolExecutor(max_workers=10) as pool:
+            futures = [pool.submit(_get, url) for _ in range(n_requests)]
+            for f in as_completed(futures):
+                status, latency = f.result()
+                latencies.append(latency)
+                if status != 200:
+                    errors += 1
+
+        p95 = sorted(latencies)[int(n_requests * 0.95)]
+        assert errors == 0, f"Security findings had {errors} errors"
+        assert p95 < 1000, f"P95 {p95:.1f}ms exceeds 1000ms"
+
+    def test_security_summary_concurrent(self, db_path, load_server):
+        """Phase 7: 20 concurrent security/summary requests."""
+        n_requests = 20
+        url = f"{load_server}/api/security/summary"
+        latencies: list[float] = []
+        errors = 0
+
+        with ThreadPoolExecutor(max_workers=10) as pool:
+            futures = [pool.submit(_get, url) for _ in range(n_requests)]
+            for f in as_completed(futures):
+                status, latency = f.result()
+                latencies.append(latency)
+                if status != 200:
+                    errors += 1
+
+        p95 = sorted(latencies)[int(n_requests * 0.95)]
+        assert errors == 0, f"Security summary had {errors} errors"
+        assert p95 < 1000, f"P95 {p95:.1f}ms exceeds 1000ms"
+
+    def test_intake_status_concurrent(self, db_path, load_server):
+        """Phase 8: 20 concurrent intake/status requests — P95 < 500ms."""
+        n_requests = 20
+        url = f"{load_server}/api/intake/status"
+        latencies: list[float] = []
+        errors = 0
+
+        with ThreadPoolExecutor(max_workers=10) as pool:
+            futures = [pool.submit(_get, url) for _ in range(n_requests)]
+            for f in as_completed(futures):
+                status, latency = f.result()
+                latencies.append(latency)
+                if status != 200:
+                    errors += 1
+
+        p95 = sorted(latencies)[int(n_requests * 0.95)]
+        assert errors == 0, f"Intake status had {errors} errors"
+        assert p95 < 500, f"P95 {p95:.1f}ms exceeds 500ms"
+
+    def test_flags_listing_concurrent(self, db_path, load_server):
+        """Phase 9: 20 concurrent flags listing requests — P95 < 500ms."""
+        n_requests = 20
+        url = f"{load_server}/api/flags"
+        latencies: list[float] = []
+        errors = 0
+
+        with ThreadPoolExecutor(max_workers=10) as pool:
+            futures = [pool.submit(_get, url) for _ in range(n_requests)]
+            for f in as_completed(futures):
+                status, latency = f.result()
+                latencies.append(latency)
+                if status != 200:
+                    errors += 1
+
+        p95 = sorted(latencies)[int(n_requests * 0.95)]
+        assert errors == 0, f"Flags listing had {errors} errors"
+        assert p95 < 500, f"P95 {p95:.1f}ms exceeds 500ms"
+
+    def test_dashboard_full_concurrent(self, load_server, db_path):
+        """Dashboard aggregation under concurrent load — P95 < 2000ms."""
+        # Seed some data for dashboard calculations
+        for i in range(5):
+            intent = Intent(
+                id=f"dash-{i}", source=f"feature/dash-{i}", target="main",
+                status=Status.READY, created_by="load-test",
+                technical={"initial_base_commit": f"sha-{i}"},
+            )
+            event_log.upsert_intent(intent)
+
+        n_requests = 15
+        url = f"{load_server}/api/dashboard"
+        latencies: list[float] = []
+        errors = 0
+
+        with ThreadPoolExecutor(max_workers=5) as pool:
+            futures = [pool.submit(_get, url) for _ in range(n_requests)]
+            for f in as_completed(futures):
+                status, latency = f.result()
+                latencies.append(latency)
+                if status != 200:
+                    errors += 1
+
+        p95 = sorted(latencies)[int(n_requests * 0.95)]
+        assert errors == 0, f"Dashboard had {errors} errors"
+        assert p95 < 2000, f"P95 {p95:.1f}ms exceeds 2000ms"
+
+    def test_mixed_phase5to8_sustained(self, load_server, db_path):
+        """Mixed requests across all Phase 5-8 endpoints — error rate < 5%."""
+        # Seed data
+        for i in range(3):
+            intent = Intent(
+                id=f"mixed-{i}", source=f"feature/mixed-{i}", target="main",
+                status=Status.READY, created_by="load-test",
+                technical={"initial_base_commit": f"sha-{i}"},
+            )
+            event_log.upsert_intent(intent)
+
+        endpoints = [
+            f"{load_server}/api/verification/debt",
+            f"{load_server}/api/reviews",
+            f"{load_server}/api/reviews/summary",
+            f"{load_server}/api/security/findings",
+            f"{load_server}/api/security/summary",
+            f"{load_server}/api/intake/status",
+            f"{load_server}/api/flags",
+            f"{load_server}/api/dashboard",
+        ]
+
+        n_requests = 80
+        errors = 0
+        latencies: list[float] = []
+
+        with ThreadPoolExecutor(max_workers=15) as pool:
+            futures = [
+                pool.submit(_get, endpoints[i % len(endpoints)])
+                for i in range(n_requests)
+            ]
+            for f in as_completed(futures):
+                status, latency = f.result()
+                latencies.append(latency)
+                if status != 200:
+                    errors += 1
+
+        error_rate = errors / n_requests
+        p99 = sorted(latencies)[int(n_requests * 0.99)]
+
+        assert error_rate < 0.05, f"Error rate {error_rate:.1%} exceeds 5%"
+        assert p99 < 3000, f"P99 {p99:.1f}ms exceeds 3000ms"

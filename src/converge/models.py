@@ -40,6 +40,15 @@ class RiskLevel(str, Enum):
     CRITICAL = "critical"
 
 
+class ReviewStatus(str, Enum):
+    PENDING = "pending"
+    ASSIGNED = "assigned"
+    IN_REVIEW = "in_review"
+    ESCALATED = "escalated"
+    COMPLETED = "completed"
+    CANCELLED = "cancelled"
+
+
 class PolicyVerdict(str, Enum):
     ALLOW = "ALLOW"
     BLOCK = "BLOCK"
@@ -50,57 +59,15 @@ class GateName(str, Enum):
     CONTAINMENT = "containment"
     ENTROPY = "entropy"
     RISK = "risk"
+    SECURITY = "security"
 
 
-# ---------------------------------------------------------------------------
-# Event type registry (single source of truth for all event type strings)
-# ---------------------------------------------------------------------------
-
-class EventType:
-    # Simulation
-    SIMULATION_COMPLETED = "simulation.completed"
-    # Checks
-    CHECK_COMPLETED = "check.completed"
-    # Risk
-    RISK_EVALUATED = "risk.evaluated"
-    RISK_SHADOW_EVALUATED = "risk.shadow_evaluated"
-    RISK_POLICY_UPDATED = "risk.policy_updated"
-    # Policy
-    POLICY_EVALUATED = "policy.evaluated"
-    # Intent lifecycle
-    INTENT_CREATED = "intent.created"
-    INTENT_STATUS_CHANGED = "intent.status_changed"
-    INTENT_VALIDATED = "intent.validated"
-    INTENT_BLOCKED = "intent.blocked"
-    INTENT_REJECTED = "intent.rejected"
-    INTENT_REQUEUED = "intent.requeued"
-    INTENT_MERGED = "intent.merged"
-    # Queue
-    QUEUE_PROCESSED = "queue.processed"
-    QUEUE_RESET = "queue.reset"
-    # Health
-    HEALTH_SNAPSHOT = "health.snapshot"
-    HEALTH_CHANGE_SNAPSHOT = "health.change_snapshot"
-    HEALTH_PREDICTION = "health.prediction"
-    # Compliance
-    COMPLIANCE_THRESHOLDS_UPDATED = "compliance.thresholds_updated"
-    # Agent
-    AGENT_POLICY_UPDATED = "agent.policy_updated"
-    AGENT_AUTHORIZED = "agent.authorized"
-    # Analytics
-    CALIBRATION_COMPLETED = "calibration.completed"
-    DATASET_EXPORTED = "dataset.exported"
-    # Integrations
-    WEBHOOK_RECEIVED = "webhook.received"
-    # GitHub
-    GITHUB_DECISION_PUBLISHED = "github.decision_published"
-    GITHUB_DECISION_PUBLISH_FAILED = "github.decision_publish_failed"
-    # Merge Queue
-    MERGE_GROUP_CHECKS_REQUESTED = "merge_group.checks_requested"
-    MERGE_GROUP_DESTROYED = "merge_group.destroyed"
-    # Worker
-    WORKER_STARTED = "worker.started"
-    WORKER_STOPPED = "worker.stopped"
+from converge.event_types import EventType  # noqa: F401
+from converge.security_models import (  # noqa: F401
+    FindingCategory,
+    FindingSeverity,
+    SecurityFinding,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -123,6 +90,8 @@ class Intent:
     dependencies: list[str] = field(default_factory=list)
     retries: int = 0
     tenant_id: str | None = None
+    plan_id: str | None = None
+    origin_type: str = "human"  # human | agent | integration
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -140,6 +109,8 @@ class Intent:
             "dependencies": self.dependencies,
             "retries": self.retries,
             "tenant_id": self.tenant_id,
+            "plan_id": self.plan_id,
+            "origin_type": self.origin_type,
         }
 
     @classmethod
@@ -159,7 +130,93 @@ class Intent:
             dependencies=d.get("dependencies", []),
             retries=d.get("retries", 0),
             tenant_id=d.get("tenant_id"),
+            plan_id=d.get("plan_id"),
+            origin_type=d.get("origin_type", "human"),
         )
+
+
+# ---------------------------------------------------------------------------
+# Review task
+# ---------------------------------------------------------------------------
+
+@dataclass
+class ReviewTask:
+    id: str
+    intent_id: str
+    status: ReviewStatus = ReviewStatus.PENDING
+    reviewer: str | None = None
+    priority: int = 3
+    risk_level: RiskLevel = RiskLevel.MEDIUM
+    trigger: str = "policy"  # policy | conflict | manual
+    sla_deadline: str | None = None
+    created_at: str = field(default_factory=now_iso)
+    assigned_at: str | None = None
+    completed_at: str | None = None
+    escalated_at: str | None = None
+    resolution: str | None = None  # approved | rejected | deferred
+    notes: str = ""
+    tenant_id: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "intent_id": self.intent_id,
+            "status": self.status.value,
+            "reviewer": self.reviewer,
+            "priority": self.priority,
+            "risk_level": self.risk_level.value,
+            "trigger": self.trigger,
+            "sla_deadline": self.sla_deadline,
+            "created_at": self.created_at,
+            "assigned_at": self.assigned_at,
+            "completed_at": self.completed_at,
+            "escalated_at": self.escalated_at,
+            "resolution": self.resolution,
+            "notes": self.notes,
+            "tenant_id": self.tenant_id,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> ReviewTask:
+        return cls(
+            id=d["id"],
+            intent_id=d["intent_id"],
+            status=ReviewStatus(d.get("status", "pending")),
+            reviewer=d.get("reviewer"),
+            priority=d.get("priority", 3),
+            risk_level=RiskLevel(d.get("risk_level", "medium")),
+            trigger=d.get("trigger", "policy"),
+            sla_deadline=d.get("sla_deadline"),
+            created_at=d.get("created_at", now_iso()),
+            assigned_at=d.get("assigned_at"),
+            completed_at=d.get("completed_at"),
+            escalated_at=d.get("escalated_at"),
+            resolution=d.get("resolution"),
+            notes=d.get("notes", ""),
+            tenant_id=d.get("tenant_id"),
+        )
+
+
+# ---------------------------------------------------------------------------
+# Commit links
+# ---------------------------------------------------------------------------
+
+@dataclass
+class CommitLink:
+    intent_id: str
+    repo: str
+    sha: str
+    role: str = "head"  # head | base | merge
+    observed_at: str = field(default_factory=now_iso)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "intent_id": self.intent_id,
+            "repo": self.repo,
+            "sha": self.sha,
+            "role": self.role,
+            "observed_at": self.observed_at,
+        }
 
 
 # ---------------------------------------------------------------------------
@@ -338,72 +395,3 @@ class AgentPolicy:
             expires_at=d.get("expires_at"),
         )
 
-
-# ---------------------------------------------------------------------------
-# Projections (output types)
-# ---------------------------------------------------------------------------
-
-@dataclass
-class HealthSnapshot:
-    repo_health_score: float = 100.0
-    entropy_score: float = 0.0
-    mergeable_rate: float = 1.0
-    conflict_rate: float = 0.0
-    active_intents: int = 0
-    merged_last_24h: int = 0
-    rejected_last_24h: int = 0
-    status: str = "green"  # green / yellow / red
-    timestamp: str = field(default_factory=now_iso)
-    tenant_id: str | None = None
-    learning: dict[str, Any] = field(default_factory=dict)
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "repo_health_score": self.repo_health_score,
-            "entropy_score": self.entropy_score,
-            "mergeable_rate": self.mergeable_rate,
-            "conflict_rate": self.conflict_rate,
-            "active_intents": self.active_intents,
-            "merged_last_24h": self.merged_last_24h,
-            "rejected_last_24h": self.rejected_last_24h,
-            "status": self.status,
-            "timestamp": self.timestamp,
-            "tenant_id": self.tenant_id,
-            "learning": self.learning,
-        }
-
-
-@dataclass
-class ComplianceReport:
-    mergeable_rate: float = 1.0
-    conflict_rate: float = 0.0
-    retries_total: int = 0
-    queue_tracked: int = 0
-    checks: list[dict[str, Any]] = field(default_factory=list)
-    passed: bool = True
-    alerts: list[dict[str, Any]] = field(default_factory=list)
-    timestamp: str = field(default_factory=now_iso)
-    tenant_id: str | None = None
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "mergeable_rate": self.mergeable_rate,
-            "conflict_rate": self.conflict_rate,
-            "retries_total": self.retries_total,
-            "queue_tracked": self.queue_tracked,
-            "checks": self.checks,
-            "passed": self.passed,
-            "alerts": self.alerts,
-            "timestamp": self.timestamp,
-            "tenant_id": self.tenant_id,
-        }
-
-
-@dataclass
-class QueueState:
-    pending: list[dict[str, Any]] = field(default_factory=list)
-    total: int = 0
-    by_status: dict[str, int] = field(default_factory=dict)
-
-    def to_dict(self) -> dict[str, Any]:
-        return {"pending": self.pending, "total": self.total, "by_status": self.by_status}

@@ -15,37 +15,36 @@ from converge.models import AgentPolicy, EventType
 
 def cmd_health_now(args: argparse.Namespace) -> int:
     from converge import projections
-    return _out(projections.repo_health(args.db, tenant_id=getattr(args, "tenant_id", None)).to_dict())
+    return _out(projections.repo_health(tenant_id=getattr(args, "tenant_id", None)).to_dict())
 
 
 def cmd_health_trend(args: argparse.Namespace) -> int:
     from converge import projections
-    return _out(projections.health_trend(args.db, tenant_id=getattr(args, "tenant_id", None),
+    return _out(projections.health_trend(tenant_id=getattr(args, "tenant_id", None),
                                           days=args.days))
 
 
 def cmd_health_change(args: argparse.Namespace) -> int:
     from converge import projections
-    return _out(projections.change_health(args.db, args.intent_id,
+    return _out(projections.change_health(args.intent_id,
                                            tenant_id=getattr(args, "tenant_id", None)))
 
 
 def cmd_health_change_trend(args: argparse.Namespace) -> int:
     from converge import projections
-    return _out(projections.change_health_trend(args.db, tenant_id=getattr(args, "tenant_id", None),
+    return _out(projections.change_health_trend(tenant_id=getattr(args, "tenant_id", None),
                                                  days=args.days))
 
 
 def cmd_health_entropy(args: argparse.Namespace) -> int:
     from converge import projections
-    return _out(projections.entropy_trend(args.db, tenant_id=getattr(args, "tenant_id", None),
+    return _out(projections.entropy_trend(tenant_id=getattr(args, "tenant_id", None),
                                            days=args.days))
 
 
 def cmd_health_predict(args: argparse.Namespace) -> int:
     from converge import projections
     return _out(projections.predict_health(
-        args.db,
         tenant_id=getattr(args, "tenant_id", None),
         horizon_days=args.horizon_days,
     ))
@@ -57,13 +56,12 @@ def cmd_health_predict(args: argparse.Namespace) -> int:
 
 def cmd_compliance_report(args: argparse.Namespace) -> int:
     from converge import projections
-    return _out(projections.compliance_report(args.db,
-                tenant_id=getattr(args, "tenant_id", None)).to_dict())
+    return _out(projections.compliance_report(tenant_id=getattr(args, "tenant_id", None)).to_dict())
 
 
 def cmd_compliance_alerts(args: argparse.Namespace) -> int:
     from converge import projections
-    report = projections.compliance_report(args.db, tenant_id=getattr(args, "tenant_id", None))
+    report = projections.compliance_report(tenant_id=getattr(args, "tenant_id", None))
     result = _out({"alerts": report.alerts, "passed": report.passed})
     if args.fail_on_alert and report.alerts:
         return 3
@@ -81,8 +79,8 @@ def cmd_compliance_threshold_set(args: argparse.Namespace) -> int:
         data["max_retries_total"] = args.max_retries_total
     if args.max_queue_tracked is not None:
         data["max_queue_tracked"] = args.max_queue_tracked
-    event_log.upsert_compliance_thresholds(args.db, args.tenant_id, data)
-    event_log.append(args.db, event_log.Event(
+    event_log.upsert_compliance_thresholds(args.tenant_id, data)
+    event_log.append(event_log.Event(
         event_type=EventType.COMPLIANCE_THRESHOLDS_UPDATED,
         tenant_id=args.tenant_id,
         payload=data,
@@ -92,13 +90,13 @@ def cmd_compliance_threshold_set(args: argparse.Namespace) -> int:
 
 def cmd_compliance_threshold_get(args: argparse.Namespace) -> int:
     from converge import event_log
-    data = event_log.get_compliance_thresholds(args.db, args.tenant_id)
+    data = event_log.get_compliance_thresholds(args.tenant_id)
     return _out(data or {"message": "No thresholds configured for this tenant"})
 
 
 def cmd_compliance_threshold_list(args: argparse.Namespace) -> int:
     from converge import event_log
-    return _out(event_log.list_compliance_thresholds(args.db))
+    return _out(event_log.list_compliance_thresholds())
 
 
 # ---------------------------------------------------------------------------
@@ -119,24 +117,23 @@ def cmd_agent_policy_set(args: argparse.Namespace) -> int:
         action_overrides=json.loads(args.action_overrides_json) if args.action_overrides_json else {},
         expires_at=getattr(args, "expires_at", None),
     )
-    return _out(agents.set_policy(args.db, pol))
+    return _out(agents.set_policy(pol))
 
 
 def cmd_agent_policy_get(args: argparse.Namespace) -> int:
     from converge import agents
-    pol = agents.get_policy(args.db, args.agent_id, getattr(args, "tenant_id", None))
+    pol = agents.get_policy(args.agent_id, getattr(args, "tenant_id", None))
     return _out(pol.to_dict())
 
 
 def cmd_agent_policy_list(args: argparse.Namespace) -> int:
     from converge import agents
-    return _out(agents.list_policies(args.db))
+    return _out(agents.list_policies())
 
 
 def cmd_agent_authorize(args: argparse.Namespace) -> int:
     from converge import agents
     result = agents.authorize(
-        args.db,
         agent_id=args.agent_id,
         action=args.action,
         intent_id=args.intent_id,
@@ -150,11 +147,23 @@ def cmd_agent_authorize(args: argparse.Namespace) -> int:
 # Audit
 # ---------------------------------------------------------------------------
 
+def cmd_audit_init_chain(args: argparse.Namespace) -> int:
+    from converge import audit_chain
+    return _out(audit_chain.initialize_chain())
+
+
+def cmd_audit_verify_chain(args: argparse.Namespace) -> int:
+    from converge import audit_chain
+    result = audit_chain.verify_chain()
+    _out(result)
+    return 0 if result.get("valid") else 3
+
+
 def cmd_audit_prune(args: argparse.Namespace) -> int:
     from converge import event_log
     from datetime import datetime, timedelta, timezone
     before = (datetime.now(timezone.utc) - timedelta(days=args.retention_days)).isoformat()
-    count = event_log.prune_events(args.db, before,
+    count = event_log.prune_events(before,
                                     tenant_id=getattr(args, "tenant_id", None),
                                     dry_run=args.dry_run)
     return _out({"pruned": count, "before": before, "dry_run": args.dry_run})
@@ -163,7 +172,6 @@ def cmd_audit_prune(args: argparse.Namespace) -> int:
 def cmd_audit_events(args: argparse.Namespace) -> int:
     from converge import event_log
     events = event_log.query(
-        args.db,
         event_type=getattr(args, "type", None),
         intent_id=getattr(args, "intent_id", None),
         agent_id=getattr(args, "agent_id", None),
@@ -180,29 +188,274 @@ def cmd_audit_events(args: argparse.Namespace) -> int:
 
 def cmd_metrics(args: argparse.Namespace) -> int:
     from converge import projections
-    return _out(projections.integration_metrics(args.db, tenant_id=getattr(args, "tenant_id", None)))
+    return _out(projections.integration_metrics(tenant_id=getattr(args, "tenant_id", None)))
 
 
 def cmd_archaeology(args: argparse.Namespace) -> int:
+    sub = getattr(args, "archaeology_cmd", None)
+    if sub == "refresh":
+        return cmd_archaeology_refresh(args)
+    # Default: report (backward compat when no subcommand or "report")
     from converge import analytics
-    report = analytics.archaeology_report(max_commits=args.max_commits, top=args.top)
+    report = analytics.archaeology_report(
+        max_commits=getattr(args, "max_commits", 400),
+        top=getattr(args, "top", 20),
+    )
     if getattr(args, "write_snapshot", None):
         analytics.save_archaeology_snapshot(report, args.write_snapshot)
     return _out(report)
 
 
+def cmd_archaeology_refresh(args: argparse.Namespace) -> int:
+    from converge import analytics
+    result = analytics.refresh_snapshot(
+        max_commits=getattr(args, "max_commits", 400),
+        output_path=getattr(args, "output", None),
+    )
+    if not result.get("valid", False):
+        _out(result)
+        return 1
+    return _out(result)
+
+
+def cmd_review_request(args: argparse.Namespace) -> int:
+    from converge import reviews
+    task = reviews.request_review(
+        args.intent_id,
+        trigger=getattr(args, "trigger", "manual"),
+        reviewer=getattr(args, "reviewer", None),
+        priority=getattr(args, "priority", None),
+        tenant_id=getattr(args, "tenant_id", None),
+    )
+    return _out(task.to_dict())
+
+
+def cmd_review_list(args: argparse.Namespace) -> int:
+    from converge import event_log
+    tasks = event_log.list_review_tasks(
+        intent_id=getattr(args, "intent_id", None),
+        status=getattr(args, "status", None),
+        reviewer=getattr(args, "reviewer", None),
+        tenant_id=getattr(args, "tenant_id", None),
+        limit=getattr(args, "limit", 50),
+    )
+    return _out([t.to_dict() for t in tasks])
+
+
+def cmd_review_assign(args: argparse.Namespace) -> int:
+    from converge import reviews
+    task = reviews.assign_review(args.task_id, args.reviewer)
+    return _out(task.to_dict())
+
+
+def cmd_review_complete(args: argparse.Namespace) -> int:
+    from converge import reviews
+    task = reviews.complete_review(
+        args.task_id,
+        resolution=args.resolution,
+        notes=getattr(args, "notes", ""),
+    )
+    return _out(task.to_dict())
+
+
+def cmd_review_cancel(args: argparse.Namespace) -> int:
+    from converge import reviews
+    task = reviews.cancel_review(
+        args.task_id,
+        reason=getattr(args, "reason", ""),
+    )
+    return _out(task.to_dict())
+
+
+def cmd_review_escalate(args: argparse.Namespace) -> int:
+    from converge import reviews
+    task = reviews.escalate_review(
+        args.task_id,
+        reason=getattr(args, "reason", "manual_escalation"),
+    )
+    return _out(task.to_dict())
+
+
+def cmd_review_sla_check(args: argparse.Namespace) -> int:
+    from converge import reviews
+    breaches = reviews.check_sla_breaches(
+        tenant_id=getattr(args, "tenant_id", None),
+    )
+    return _out({"breaches": breaches, "count": len(breaches)})
+
+
+def cmd_review_summary(args: argparse.Namespace) -> int:
+    from converge import reviews
+    return _out(reviews.review_summary(
+        tenant_id=getattr(args, "tenant_id", None),
+    ))
+
+
+def cmd_semantic_status(args: argparse.Namespace) -> int:
+    from converge import event_log
+    return _out(event_log.embedding_coverage(
+        tenant_id=getattr(args, "tenant_id", None),
+        model=getattr(args, "model", None),
+    ))
+
+
+def cmd_semantic_index(args: argparse.Namespace) -> int:
+    from converge.semantic.indexer import index_intent
+    from converge.semantic.embeddings import get_provider
+    provider = get_provider(getattr(args, "provider", "deterministic"))
+    result = index_intent(
+        args.intent_id, provider,
+        force=getattr(args, "force", False),
+    )
+    return _out(result)
+
+
+def cmd_semantic_reindex(args: argparse.Namespace) -> int:
+    from converge.semantic.indexer import reindex
+    result = reindex(
+        provider_name=getattr(args, "provider", "deterministic"),
+        tenant_id=getattr(args, "tenant_id", None),
+        force=getattr(args, "force", False),
+        dry_run=getattr(args, "dry_run", False),
+    )
+    if not result.get("total", 0):
+        _out(result)
+        return 1
+    return _out(result)
+
+
+def cmd_semantic_conflicts(args: argparse.Namespace) -> int:
+    from converge.semantic.conflicts import scan_conflicts
+    report = scan_conflicts(
+        model=getattr(args, "model", "deterministic-v1"),
+        tenant_id=getattr(args, "tenant_id", None),
+        target=getattr(args, "target", None),
+        similarity_threshold=getattr(args, "similarity_threshold", 0.70),
+        conflict_threshold=getattr(args, "conflict_threshold", 0.60),
+        mode=getattr(args, "mode", "shadow"),
+    )
+    return _out({
+        "conflicts": [
+            {
+                "intent_a": c.intent_a,
+                "intent_b": c.intent_b,
+                "score": c.score,
+                "similarity": c.similarity,
+                "target": c.target,
+            }
+            for c in report.conflicts
+        ],
+        "candidates_checked": report.candidates_checked,
+        "mode": report.mode,
+        "threshold": report.threshold,
+        "timestamp": report.timestamp,
+    })
+
+
+def cmd_semantic_conflict_list(args: argparse.Namespace) -> int:
+    from converge.semantic.conflicts import list_conflicts
+    return _out(list_conflicts(
+        tenant_id=getattr(args, "tenant_id", None),
+        limit=getattr(args, "limit", 50),
+    ))
+
+
+def cmd_semantic_conflict_resolve(args: argparse.Namespace) -> int:
+    from converge.semantic.conflicts import resolve_conflict
+    return _out(resolve_conflict(
+        args.intent_a,
+        args.intent_b,
+        resolution=getattr(args, "resolution", "acknowledged"),
+        resolved_by=args.actor,
+        tenant_id=getattr(args, "tenant_id", None),
+    ))
+
+
 def cmd_predictions(args: argparse.Namespace) -> int:
     from converge import projections
-    return _out(projections.predict_issues(args.db, tenant_id=getattr(args, "tenant_id", None)))
+    return _out(projections.predict_issues(tenant_id=getattr(args, "tenant_id", None)))
 
 
 def cmd_export_decisions(args: argparse.Namespace) -> int:
-    from converge import analytics
-    return _out(analytics.export_decisions(
-        args.db,
+    from converge import exports
+    return _out(exports.export_decisions(
         output_path=getattr(args, "output", None),
         tenant_id=getattr(args, "tenant_id", None),
         fmt=args.format,
+    ))
+
+
+# ---------------------------------------------------------------------------
+# Verification debt
+# ---------------------------------------------------------------------------
+
+def cmd_verification_debt(args: argparse.Namespace) -> int:
+    from converge import projections
+    debt = projections.verification_debt(tenant_id=getattr(args, "tenant_id", None))
+    return _out(debt.to_dict())
+
+
+# ---------------------------------------------------------------------------
+# Intake control
+# ---------------------------------------------------------------------------
+
+def cmd_intake_status(args: argparse.Namespace) -> int:
+    from converge import intake
+    return _out(intake.intake_status(tenant_id=getattr(args, "tenant_id", None)))
+
+
+def cmd_intake_set_mode(args: argparse.Namespace) -> int:
+    from converge import intake
+    return _out(intake.set_intake_mode(
+        args.mode,
+        tenant_id=getattr(args, "tenant_id", None),
+        set_by=args.actor,
+        reason=getattr(args, "reason", ""),
+    ))
+
+
+# ---------------------------------------------------------------------------
+# Pre-evaluation harness
+# ---------------------------------------------------------------------------
+
+def cmd_harness_evaluate(args: argparse.Namespace) -> int:
+    from converge import harness
+    intent_data = json.loads(open(args.file).read())
+    cfg = harness.HarnessConfig(mode=getattr(args, "mode", "shadow"))
+    result = harness.evaluate_intent(intent_data, config=cfg)
+    return _out(result.to_dict())
+
+
+# ---------------------------------------------------------------------------
+# Security scanning
+# ---------------------------------------------------------------------------
+
+def cmd_security_scan(args: argparse.Namespace) -> int:
+    from converge import security
+    return _out(security.run_scan(
+        args.path,
+        intent_id=getattr(args, "intent_id", None),
+        tenant_id=getattr(args, "tenant_id", None),
+    ))
+
+
+def cmd_security_findings(args: argparse.Namespace) -> int:
+    from converge import event_log
+    findings = event_log.list_security_findings(
+        intent_id=getattr(args, "intent_id", None),
+        scanner=getattr(args, "scanner", None),
+        severity=getattr(args, "severity", None),
+        category=getattr(args, "category", None),
+        tenant_id=getattr(args, "tenant_id", None),
+        limit=getattr(args, "limit", 100),
+    )
+    return _out({"findings": findings, "total": len(findings)})
+
+
+def cmd_security_summary(args: argparse.Namespace) -> int:
+    from converge import security
+    return _out(security.scan_summary(
+        tenant_id=getattr(args, "tenant_id", None),
     ))
 
 
@@ -212,12 +465,12 @@ def cmd_export_decisions(args: argparse.Namespace) -> int:
 
 def cmd_serve(args: argparse.Namespace) -> int:
     from converge import server
-    server.serve(args.db, host=args.host, port=args.port,
+    server.serve(host=args.host, port=args.port,
                  webhook_secret=getattr(args, "secret", ""))
     return 0
 
 
 def cmd_worker(args: argparse.Namespace) -> int:
     from converge.worker import run_worker
-    run_worker(db_path=args.db)
+    run_worker()
     return 0

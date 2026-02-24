@@ -44,23 +44,23 @@ def live_server(db_path):
 
 @pytest.mark.integration
 class TestHealthChecks:
-    def test_health_legacy(self, live_server):
+    def test_health_legacy(self, db_path, live_server):
         resp = urlopen(f"{live_server}/health")
         data = json.loads(resp.read())
         assert data["status"] == "ok"
         assert "timestamp" in data
 
-    def test_health_ready(self, live_server):
+    def test_health_ready(self, db_path, live_server):
         resp = urlopen(f"{live_server}/health/ready")
         data = json.loads(resp.read())
         assert data["status"] == "ok"
 
-    def test_health_live(self, live_server):
+    def test_health_live(self, db_path, live_server):
         resp = urlopen(f"{live_server}/health/live")
         data = json.loads(resp.read())
         assert data["status"] == "ok"
 
-    def test_metrics_endpoint(self, live_server):
+    def test_metrics_endpoint(self, db_path, live_server):
         with patch.dict(os.environ, {"CONVERGE_AUTH_REQUIRED": "0"}):
             # Make a request first so there's something to measure
             urlopen(f"{live_server}/health")
@@ -68,7 +68,7 @@ class TestHealthChecks:
             body = resp.read().decode()
             assert "converge_http_requests_total" in body
 
-    def test_health_no_auth_required(self, live_server):
+    def test_health_no_auth_required(self, db_path, live_server):
         """Health endpoints should work even with auth enabled."""
         with patch.dict(os.environ, {"CONVERGE_AUTH_REQUIRED": "1", "CONVERGE_API_KEYS": ""}):
             resp = urlopen(f"{live_server}/health")
@@ -86,20 +86,20 @@ class TestHealthChecks:
 class TestV1Prefix:
     """Verify that /v1/ prefix serves the same endpoints as /api/."""
 
-    def test_v1_intents(self, live_server):
+    def test_v1_intents(self, db_path, live_server):
         with patch.dict(os.environ, {"CONVERGE_AUTH_REQUIRED": "0"}):
             resp = urlopen(f"{live_server}/v1/intents")
             data = json.loads(resp.read())
             assert data == []
 
-    def test_v1_summary(self, live_server):
+    def test_v1_summary(self, db_path, live_server):
         with patch.dict(os.environ, {"CONVERGE_AUTH_REQUIRED": "0"}):
             resp = urlopen(f"{live_server}/v1/summary")
             data = json.loads(resp.read())
             assert "health" in data
             assert "queue" in data
 
-    def test_v1_queue_state(self, live_server):
+    def test_v1_queue_state(self, db_path, live_server):
         with patch.dict(os.environ, {"CONVERGE_AUTH_REQUIRED": "0"}):
             resp = urlopen(f"{live_server}/v1/queue/state")
             data = json.loads(resp.read())
@@ -107,14 +107,14 @@ class TestV1Prefix:
 
     def test_v1_risk_policy(self, live_server, db_path):
         with patch.dict(os.environ, {"CONVERGE_AUTH_REQUIRED": "0"}):
-            event_log.upsert_risk_policy(db_path, "t1", {"score": 10})
+            event_log.upsert_risk_policy("t1", {"score": 10})
             resp = urlopen(f"{live_server}/v1/risk/policy")
             data = json.loads(resp.read())
             assert len(data) >= 1
 
     def test_v1_events(self, live_server, db_path):
         with patch.dict(os.environ, {"CONVERGE_AUTH_REQUIRED": "0"}):
-            event_log.append(db_path, Event(
+            event_log.append(Event(
                 event_type="test.event", payload={"k": "v"}, trace_id="t",
             ))
             resp = urlopen(f"{live_server}/v1/events")

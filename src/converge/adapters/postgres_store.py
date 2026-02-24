@@ -13,7 +13,7 @@ import psycopg.errors
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
 
-from converge.adapters.base_store import SCHEMA, BaseConvergeStore
+from converge.adapters.base_store import SCHEMA, _MIGRATIONS, BaseConvergeStore
 
 
 class PostgresStore(BaseConvergeStore):
@@ -38,9 +38,14 @@ class PostgresStore(BaseConvergeStore):
             self._apply_schema()
 
     def _apply_schema(self) -> None:
-        """Create tables and indexes if they don't exist."""
+        """Create tables and indexes if they don't exist, then run migrations."""
         with self._pool.connection() as conn:
             conn.execute(SCHEMA)
+            for migration in _MIGRATIONS:
+                try:
+                    conn.execute(migration)
+                except Exception:
+                    pass  # column/table already exists
             conn.commit()
 
     @property

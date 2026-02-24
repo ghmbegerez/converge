@@ -44,6 +44,7 @@ def cmd_intent_create(args: argparse.Namespace) -> int:
     source = data.get("source") or data.get("technical", {}).get("source_ref", "")
     target = data.get("target") or data.get("technical", {}).get("target_ref", "main")
 
+    origin = getattr(args, "origin_type", None) or data.get("origin_type", "human")
     intent = Intent(
         id=intent_id,
         source=source,
@@ -58,10 +59,23 @@ def cmd_intent_create(args: argparse.Namespace) -> int:
         checks_required=data.get("checks_required", []),
         dependencies=data.get("dependencies", []),
         tenant_id=data.get("tenant_id"),
+        origin_type=origin,
     )
 
-    event_log.upsert_intent(args.db, intent)
-    event_log.append(args.db, Event(
+    # Intake pre-check: evaluate system health before accepting
+    from converge.intake import evaluate_intake
+    decision = evaluate_intake(intent)
+    if not decision.accepted:
+        return _out({
+            "ok": False,
+            "intent_id": intent.id,
+            "rejected_by": "intake",
+            "mode": decision.mode.value,
+            "reason": decision.reason,
+        })
+
+    event_log.upsert_intent(intent)
+    event_log.append(Event(
         event_type=EventType.INTENT_CREATED,
         intent_id=intent.id,
         tenant_id=intent.tenant_id,
@@ -72,18 +86,18 @@ def cmd_intent_create(args: argparse.Namespace) -> int:
 
 def cmd_intent_list(args: argparse.Namespace) -> int:
     from converge import event_log
-    intents = event_log.list_intents(args.db, status=args.status, tenant_id=getattr(args, "tenant_id", None))
+    intents = event_log.list_intents(status=args.status, tenant_id=getattr(args, "tenant_id", None))
     return _out([i.to_dict() for i in intents])
 
 
 def cmd_intent_status(args: argparse.Namespace) -> int:
     from converge import event_log
     from converge.models import Event
-    intent = event_log.get_intent(args.db, args.intent_id)
+    intent = event_log.get_intent(args.intent_id)
     if intent is None:
         return _out({"error": f"Intent {args.intent_id} not found"})
-    event_log.update_intent_status(args.db, args.intent_id, Status(args.status))
-    event_log.append(args.db, Event(
+    event_log.update_intent_status(args.intent_id, Status(args.status))
+    event_log.append(Event(
         event_type=EventType.INTENT_STATUS_CHANGED,
         intent_id=args.intent_id,
         tenant_id=intent.tenant_id,
@@ -94,7 +108,7 @@ def cmd_intent_status(args: argparse.Namespace) -> int:
 
 def cmd_simulate(args: argparse.Namespace) -> int:
     from converge import engine
-    sim = engine.simulate(args.source, args.target, args.db,
+    sim = engine.simulate(args.source, args.target,
                           intent_id=getattr(args, "intent_id", None))
     return _out({
         "mergeable": sim.mergeable,
@@ -108,7 +122,7 @@ def cmd_simulate(args: argparse.Namespace) -> int:
 
 def cmd_validate(args: argparse.Namespace) -> int:
     from converge import engine, event_log
-    intent = event_log.get_intent(args.db, args.intent_id)
+    intent = event_log.get_intent(args.intent_id)
     if intent is None:
         return _out({"error": f"Intent {args.intent_id} not found"})
     # Override source/target from args if provided
@@ -120,9 +134,9 @@ def cmd_validate(args: argparse.Namespace) -> int:
         intent.target = args.target
         modified = True
     if modified:
-        event_log.upsert_intent(args.db, intent)
+        event_log.upsert_intent(intent)
     result = engine.validate_intent(
-        intent, args.db,
+        intent,
         use_last_simulation=args.use_last_simulation,
         skip_checks=args.skip_checks,
     )

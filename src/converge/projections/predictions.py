@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 from converge import event_log
+from converge.defaults import QUERY_LIMIT_LARGE
 from converge.models import EventType
 from converge.projections._time import _safe_avg, _since_hours
 
@@ -28,12 +28,10 @@ _THERMAL_PROPAGATION = 30
 # --- Time windows ---
 _WINDOW_24H = 24
 _WINDOW_48H = 48
-_QUERY_LIMIT = 10000
 _BOMB_MIN_SAMPLES = 3
 
 
 def predict_issues(
-    db_path: str | Path,
     tenant_id: str | None = None,
 ) -> list[dict[str, Any]]:
     """Predict potential issues from recent trends."""
@@ -41,10 +39,10 @@ def predict_issues(
     since_48h = _since_hours(_WINDOW_48H)
 
     # Pre-fetch event windows shared across detectors
-    sims_24 = event_log.query(db_path, event_type=EventType.SIMULATION_COMPLETED, tenant_id=tenant_id, since=since_24h, limit=_QUERY_LIMIT)
-    sims_48 = event_log.query(db_path, event_type=EventType.SIMULATION_COMPLETED, tenant_id=tenant_id, since=since_48h, limit=_QUERY_LIMIT)
-    risk_24 = event_log.query(db_path, event_type=EventType.RISK_EVALUATED, tenant_id=tenant_id, since=since_24h, limit=_QUERY_LIMIT)
-    risk_48 = event_log.query(db_path, event_type=EventType.RISK_EVALUATED, tenant_id=tenant_id, since=since_48h, limit=_QUERY_LIMIT)
+    sims_24 = event_log.query(event_type=EventType.SIMULATION_COMPLETED, tenant_id=tenant_id, since=since_24h, limit=QUERY_LIMIT_LARGE)
+    sims_48 = event_log.query(event_type=EventType.SIMULATION_COMPLETED, tenant_id=tenant_id, since=since_48h, limit=QUERY_LIMIT_LARGE)
+    risk_24 = event_log.query(event_type=EventType.RISK_EVALUATED, tenant_id=tenant_id, since=since_24h, limit=QUERY_LIMIT_LARGE)
+    risk_48 = event_log.query(event_type=EventType.RISK_EVALUATED, tenant_id=tenant_id, since=since_48h, limit=QUERY_LIMIT_LARGE)
 
     sims_prev = [s for s in sims_48 if s["timestamp"] < since_24h]
     risk_prev = [r for r in risk_48 if r["timestamp"] < since_24h]
@@ -52,8 +50,8 @@ def predict_issues(
     signals: list[dict[str, Any]] = []
     _detect_rising_conflicts(sims_24, sims_prev, signals)
     _detect_entropy_spike(risk_24, risk_prev, signals)
-    _detect_queue_stalling(db_path, tenant_id, since_24h, signals)
-    _detect_high_rejection(db_path, tenant_id, since_24h, signals)
+    _detect_queue_stalling(tenant_id, since_24h, signals)
+    _detect_high_rejection(tenant_id, since_24h, signals)
     _detect_bomb_cascade(risk_24, signals)
     _detect_bomb_spiral(risk_24, risk_prev, signals)
     _detect_bomb_thermal(risk_24, sims_24, sims_prev, signals)
@@ -91,11 +89,10 @@ def _detect_entropy_spike(
         })
 
 
-def _detect_queue_stalling(
-    db_path: str | Path, tenant_id: str | None, since_24h: str, out: list[dict[str, Any]],
+def _detect_queue_stalling(tenant_id: str | None, since_24h: str, out: list[dict[str, Any]],
 ) -> None:
     """Signal: excessive requeues indicate queue stalling."""
-    requeued = event_log.query(db_path, event_type=EventType.INTENT_REQUEUED, tenant_id=tenant_id, since=since_24h, limit=_QUERY_LIMIT)
+    requeued = event_log.query(event_type=EventType.INTENT_REQUEUED, tenant_id=tenant_id, since=since_24h, limit=QUERY_LIMIT_LARGE)
     if len(requeued) > _QUEUE_STALL_REQUEUE:
         out.append({
             "signal": "queue_stalling",
@@ -105,12 +102,11 @@ def _detect_queue_stalling(
         })
 
 
-def _detect_high_rejection(
-    db_path: str | Path, tenant_id: str | None, since_24h: str, out: list[dict[str, Any]],
+def _detect_high_rejection(tenant_id: str | None, since_24h: str, out: list[dict[str, Any]],
 ) -> None:
     """Signal: high rejection rate relative to total decisions."""
-    rejected = event_log.query(db_path, event_type=EventType.INTENT_REJECTED, tenant_id=tenant_id, since=since_24h, limit=_QUERY_LIMIT)
-    merged = event_log.query(db_path, event_type=EventType.INTENT_MERGED, tenant_id=tenant_id, since=since_24h, limit=_QUERY_LIMIT)
+    rejected = event_log.query(event_type=EventType.INTENT_REJECTED, tenant_id=tenant_id, since=since_24h, limit=QUERY_LIMIT_LARGE)
+    merged = event_log.query(event_type=EventType.INTENT_MERGED, tenant_id=tenant_id, since=since_24h, limit=QUERY_LIMIT_LARGE)
     total = len(rejected) + len(merged)
     if total > _REJECTION_MIN_DECISIONS and len(rejected) / total > _REJECTION_RATE:
         out.append({

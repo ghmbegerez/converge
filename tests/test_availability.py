@@ -39,7 +39,7 @@ def loaded_server(db_path):
             tenant_id=f"tenant-{i % 3}",
             technical={"initial_base_commit": f"sha-{i}"},
         )
-        event_log.upsert_intent(db_path, intent)
+        event_log.upsert_intent(intent)
 
     with patch.dict(os.environ, {
         "CONVERGE_AUTH_REQUIRED": "0",

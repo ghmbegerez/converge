@@ -7,6 +7,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from converge import analytics, event_log
+from converge.defaults import QUERY_LIMIT_LARGE
 from converge.api.auth import enforce_tenant, require_viewer
 from converge.api.schemas import RiskPolicyBody
 from converge.models import EventType
@@ -21,9 +22,8 @@ def risk_recent(
     tenant_id: str | None = None,
     principal: dict = Depends(require_viewer),
 ):
-    db = request.app.state.db_path
     tenant = principal.get("tenant") or tenant_id
-    return event_log.query(db, event_type=EventType.RISK_EVALUATED, tenant_id=tenant, limit=limit)
+    return event_log.query(event_type=EventType.RISK_EVALUATED, tenant_id=tenant, limit=limit)
 
 
 @router.get("/risk/review")
@@ -33,11 +33,10 @@ def risk_review(
     tenant_id: str | None = None,
     principal: dict = Depends(require_viewer),
 ):
-    db = request.app.state.db_path
     tenant = principal.get("tenant") or tenant_id
     if not intent_id:
         raise HTTPException(status_code=400, detail="intent_id required")
-    return analytics.risk_review(db, intent_id, tenant_id=tenant)
+    return analytics.risk_review(intent_id, tenant_id=tenant)
 
 
 @router.get("/risk/shadow/recent")
@@ -47,9 +46,8 @@ def risk_shadow_recent(
     tenant_id: str | None = None,
     principal: dict = Depends(require_viewer),
 ):
-    db = request.app.state.db_path
     tenant = principal.get("tenant") or tenant_id
-    return event_log.query(db, event_type=EventType.RISK_SHADOW_EVALUATED, tenant_id=tenant, limit=limit)
+    return event_log.query(event_type=EventType.RISK_SHADOW_EVALUATED, tenant_id=tenant, limit=limit)
 
 
 @router.get("/risk/gate/report")
@@ -58,9 +56,8 @@ def risk_gate_report(
     tenant_id: str | None = None,
     principal: dict = Depends(require_viewer),
 ):
-    db = request.app.state.db_path
     tenant = principal.get("tenant") or tenant_id
-    events = event_log.query(db, event_type=EventType.POLICY_EVALUATED, tenant_id=tenant, limit=1000)
+    events = event_log.query(event_type=EventType.POLICY_EVALUATED, tenant_id=tenant, limit=QUERY_LIMIT_LARGE)
     blocked = [e for e in events if e["payload"].get("verdict") == "BLOCK"]
     return {
         "total_evaluations": len(events),
@@ -76,9 +73,8 @@ def risk_policy_list(
     tenant_id: str | None = None,
     principal: dict = Depends(require_viewer),
 ):
-    db = request.app.state.db_path
     tenant = principal.get("tenant") or tenant_id
-    return event_log.list_risk_policies(db, tenant_id=tenant)
+    return event_log.list_risk_policies(tenant_id=tenant)
 
 
 @router.post("/risk/policy")
@@ -88,9 +84,8 @@ def risk_policy_upsert(
     tenant_id: str | None = None,
     principal: dict = Depends(require_viewer),
 ):
-    db = request.app.state.db_path
     tid = enforce_tenant(body.tenant_id or tenant_id, principal)
-    event_log.upsert_risk_policy(db, tid, body.model_dump(exclude_none=True))
+    event_log.upsert_risk_policy(tid, body.model_dump(exclude_none=True))
     return {"ok": True, "tenant_id": tid}
 
 
@@ -101,10 +96,9 @@ def impact_edges(
     tenant_id: str | None = None,
     principal: dict = Depends(require_viewer),
 ):
-    db = request.app.state.db_path
     tenant = principal.get("tenant") or tenant_id
     events = event_log.query(
-        db, event_type=EventType.RISK_EVALUATED, intent_id=intent_id, tenant_id=tenant, limit=1,
+        event_type=EventType.RISK_EVALUATED, intent_id=intent_id, tenant_id=tenant, limit=1,
     )
     edges = events[0]["payload"].get("impact_edges", []) if events else []
     return edges
@@ -117,10 +111,9 @@ def diagnostics_recent(
     tenant_id: str | None = None,
     principal: dict = Depends(require_viewer),
 ):
-    db = request.app.state.db_path
     tenant = principal.get("tenant") or tenant_id
     events = event_log.query(
-        db, event_type=EventType.RISK_EVALUATED, intent_id=intent_id, tenant_id=tenant, limit=1,
+        event_type=EventType.RISK_EVALUATED, intent_id=intent_id, tenant_id=tenant, limit=1,
     )
     if events:
         return events[0]["payload"].get("findings", [])

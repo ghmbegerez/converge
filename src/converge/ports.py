@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any, Protocol, runtime_checkable
 
-from converge.models import Event, Intent, Status
+from converge.models import Event, Intent, ReviewTask, SecurityFinding, Status
 
 
 # ---------------------------------------------------------------------------
@@ -56,6 +56,98 @@ class IntentStorePort(Protocol):
         status: Status,
         retries: int | None = None,
     ) -> None: ...
+
+
+@runtime_checkable
+class CommitLinkStorePort(Protocol):
+    def upsert_commit_link(
+        self, intent_id: str, repo: str, sha: str, role: str, observed_at: str,
+    ) -> None: ...
+    def list_commit_links(self, intent_id: str) -> list[dict[str, Any]]: ...
+    def delete_commit_link(
+        self, intent_id: str, sha: str, role: str,
+    ) -> bool: ...
+
+
+@runtime_checkable
+class EmbeddingStorePort(Protocol):
+    def upsert_embedding(
+        self, intent_id: str, model: str, dimension: int,
+        checksum: str, vector: str, generated_at: str,
+    ) -> None: ...
+    def get_embedding(
+        self, intent_id: str, model: str,
+    ) -> dict[str, Any] | None: ...
+    def list_embeddings(
+        self, *, tenant_id: str | None = None, model: str | None = None,
+        limit: int = 1000,
+    ) -> list[dict[str, Any]]: ...
+    def delete_embedding(self, intent_id: str, model: str) -> bool: ...
+    def embedding_coverage(
+        self, *, tenant_id: str | None = None, model: str | None = None,
+    ) -> dict[str, Any]: ...
+
+
+@runtime_checkable
+class ReviewStorePort(Protocol):
+    def upsert_review_task(self, task: ReviewTask) -> None: ...
+    def get_review_task(self, task_id: str) -> ReviewTask | None: ...
+    def list_review_tasks(
+        self,
+        *,
+        intent_id: str | None = None,
+        status: str | None = None,
+        reviewer: str | None = None,
+        tenant_id: str | None = None,
+        limit: int = 200,
+    ) -> list[ReviewTask]: ...
+    def update_review_task_status(
+        self, task_id: str, status: str, **fields: Any,
+    ) -> None: ...
+
+
+@runtime_checkable
+class IntakeStorePort(Protocol):
+    def upsert_intake_override(
+        self, tenant_id: str, mode: str, set_by: str, reason: str,
+    ) -> None: ...
+    def get_intake_override(self, tenant_id: str) -> dict[str, Any] | None: ...
+    def delete_intake_override(self, tenant_id: str) -> bool: ...
+
+
+@runtime_checkable
+class SecurityScannerPort(Protocol):
+    """Port for security scanner adapters.
+
+    Each adapter wraps a specific tool (bandit, pip-audit, gitleaks) and
+    normalizes its output into SecurityFinding instances.
+    """
+    @property
+    def scanner_name(self) -> str: ...
+    def scan(self, path: str, **options: Any) -> list[SecurityFinding]: ...
+    def is_available(self) -> bool: ...
+
+
+@runtime_checkable
+class SecurityFindingStorePort(Protocol):
+    def upsert_security_finding(self, finding: dict[str, Any]) -> None: ...
+    def list_security_findings(
+        self,
+        *,
+        intent_id: str | None = None,
+        scanner: str | None = None,
+        severity: str | None = None,
+        category: str | None = None,
+        tenant_id: str | None = None,
+        limit: int = 200,
+    ) -> list[dict[str, Any]]: ...
+    def count_security_findings(
+        self,
+        *,
+        intent_id: str | None = None,
+        severity: str | None = None,
+        tenant_id: str | None = None,
+    ) -> dict[str, int]: ...
 
 
 @runtime_checkable
@@ -112,6 +204,12 @@ class DeliveryPort(Protocol):
     def record_delivery(self, delivery_id: str) -> None: ...
 
 
+@runtime_checkable
+class ChainStatePort(Protocol):
+    def get_chain_state(self, chain_id: str = "main") -> dict[str, Any] | None: ...
+    def save_chain_state(self, chain_id: str, last_hash: str, event_count: int) -> None: ...
+
+
 # ---------------------------------------------------------------------------
 # Composite store
 # ---------------------------------------------------------------------------
@@ -120,9 +218,15 @@ class DeliveryPort(Protocol):
 class ConvergeStore(
     EventStorePort,
     IntentStorePort,
+    CommitLinkStorePort,
+    EmbeddingStorePort,
+    ReviewStorePort,
+    IntakeStorePort,
+    SecurityFindingStorePort,
     PolicyStorePort,
     LockPort,
     DeliveryPort,
+    ChainStatePort,
     Protocol,
 ):
     def close(self) -> None: ...

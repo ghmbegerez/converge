@@ -22,10 +22,8 @@ def query_events(
     limit: int = 100,
     principal: dict = Depends(require_viewer),
 ):
-    db = request.app.state.db_path
     tenant = principal.get("tenant") or tenant_id
     return event_log.query(
-        db,
         event_type=type,
         intent_id=intent_id,
         agent_id=agent_id,
@@ -42,9 +40,8 @@ def audit_recent(
     tenant_id: str | None = None,
     principal: dict = Depends(require_operator),
 ):
-    db = request.app.state.db_path
     tenant = principal.get("tenant") or tenant_id
-    return event_log.query(db, tenant_id=tenant, limit=limit)
+    return event_log.query(tenant_id=tenant, limit=limit)
 
 
 @router.get("/policy/recent")
@@ -54,10 +51,9 @@ def policy_recent(
     tenant_id: str | None = None,
     principal: dict = Depends(require_viewer),
 ):
-    db = request.app.state.db_path
     tenant = principal.get("tenant") or tenant_id
     return event_log.query(
-        db, event_type=EventType.POLICY_EVALUATED, tenant_id=tenant, limit=limit,
+        event_type=EventType.POLICY_EVALUATED, tenant_id=tenant, limit=limit,
     )
 
 
@@ -67,9 +63,8 @@ def metrics_integration(
     tenant_id: str | None = None,
     principal: dict = Depends(require_viewer),
 ):
-    db = request.app.state.db_path
     tenant = principal.get("tenant") or tenant_id
-    return projections.integration_metrics(db, tenant_id=tenant)
+    return projections.integration_metrics(tenant_id=tenant)
 
 
 # ---------------------------------------------------------------------------
@@ -82,9 +77,8 @@ def health_repo_now(
     tenant_id: str | None = None,
     principal: dict = Depends(require_viewer),
 ):
-    db = request.app.state.db_path
     tenant = principal.get("tenant") or tenant_id
-    return projections.repo_health(db, tenant_id=tenant).to_dict()
+    return projections.repo_health(tenant_id=tenant).to_dict()
 
 
 @router.get("/health/repo/trend")
@@ -94,9 +88,8 @@ def health_repo_trend(
     tenant_id: str | None = None,
     principal: dict = Depends(require_viewer),
 ):
-    db = request.app.state.db_path
     tenant = principal.get("tenant") or tenant_id
-    return projections.health_trend(db, tenant_id=tenant, days=days)
+    return projections.health_trend(tenant_id=tenant, days=days)
 
 
 @router.get("/health/change")
@@ -106,11 +99,10 @@ def health_change(
     tenant_id: str | None = None,
     principal: dict = Depends(require_viewer),
 ):
-    db = request.app.state.db_path
     tenant = principal.get("tenant") or tenant_id
     if not intent_id:
         raise HTTPException(status_code=400, detail="intent_id required")
-    return projections.change_health(db, intent_id, tenant_id=tenant)
+    return projections.change_health(intent_id, tenant_id=tenant)
 
 
 @router.get("/health/change/trend")
@@ -120,9 +112,8 @@ def health_change_trend(
     tenant_id: str | None = None,
     principal: dict = Depends(require_viewer),
 ):
-    db = request.app.state.db_path
     tenant = principal.get("tenant") or tenant_id
-    return projections.change_health_trend(db, tenant_id=tenant, days=days)
+    return projections.change_health_trend(tenant_id=tenant, days=days)
 
 
 @router.get("/health/entropy/trend")
@@ -132,6 +123,5 @@ def health_entropy_trend(
     tenant_id: str | None = None,
     principal: dict = Depends(require_viewer),
 ):
-    db = request.app.state.db_path
     tenant = principal.get("tenant") or tenant_id
-    return projections.entropy_trend(db, tenant_id=tenant, days=days)
+    return projections.entropy_trend(tenant_id=tenant, days=days)

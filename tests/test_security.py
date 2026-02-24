@@ -29,37 +29,37 @@ from converge.api.auth import (
 # ---------------------------------------------------------------------------
 
 class TestScopes:
-    def test_resolve_scope_strips_api_prefix(self):
+    def test_resolve_scope_strips_api_prefix(self, db_path):
         assert _resolve_scope("GET", "/api/intents") == "intents.read"
         assert _resolve_scope("GET", "/v1/intents") == "intents.read"
 
-    def test_resolve_scope_post(self):
+    def test_resolve_scope_post(self, db_path):
         assert _resolve_scope("POST", "/api/risk/policy") == "risk.write"
         assert _resolve_scope("POST", "/api/agent/authorize") == "agents.admin"
 
-    def test_principal_has_scope_wildcard(self):
+    def test_principal_has_scope_wildcard(self, db_path):
         p = {"scopes": "*"}
         assert _principal_has_scope(p, "risk.write") is True
 
-    def test_principal_has_scope_specific(self):
+    def test_principal_has_scope_specific(self, db_path):
         p = {"scopes": "risk.read,risk.write"}
         assert _principal_has_scope(p, "risk.read") is True
         assert _principal_has_scope(p, "risk.write") is True
         assert _principal_has_scope(p, "agents.admin") is False
 
-    def test_principal_has_scope_resource_wildcard(self):
+    def test_principal_has_scope_resource_wildcard(self, db_path):
         p = {"scopes": "risk.*,intents.read"}
         assert _principal_has_scope(p, "risk.read") is True
         assert _principal_has_scope(p, "risk.write") is True
         assert _principal_has_scope(p, "intents.read") is True
         assert _principal_has_scope(p, "agents.write") is False
 
-    def test_principal_no_scopes_allows_all(self):
+    def test_principal_no_scopes_allows_all(self, db_path):
         """Backward compat: no scopes defined → role-only access."""
         p = {"scopes": None}
         assert _principal_has_scope(p, "anything") is True
 
-    def test_scope_enforcement_blocks_missing_scope(self):
+    def test_scope_enforcement_blocks_missing_scope(self, db_path):
         """A key with explicit scopes is blocked from endpoints outside its scope."""
         with patch.dict(os.environ, {
             "CONVERGE_AUTH_REQUIRED": "1",
@@ -77,7 +77,7 @@ class TestScopes:
 # ---------------------------------------------------------------------------
 
 class TestKeyRotation:
-    def test_rotated_key_in_grace_period(self):
+    def test_rotated_key_in_grace_period(self, db_path):
         reset_rotated_keys()
         principal = {"role": "admin", "actor": "test", "tenant": None, "scopes": None}
         _register_rotated_key("hash123", principal, grace_seconds=60)
@@ -85,7 +85,7 @@ class TestKeyRotation:
         assert result is not None
         assert result["role"] == "admin"
 
-    def test_rotated_key_expired(self):
+    def test_rotated_key_expired(self, db_path):
         reset_rotated_keys()
         principal = {"role": "admin", "actor": "test", "tenant": None}
         _register_rotated_key("hash456", principal, grace_seconds=0)
@@ -93,7 +93,7 @@ class TestKeyRotation:
         result = _check_rotated_key("hash456")
         assert result is None
 
-    def test_rotated_key_used_in_authorize(self):
+    def test_rotated_key_used_in_authorize(self, db_path):
         """Old key still works during grace period via _authorize_request."""
         reset_rotated_keys()
         principal = {"role": "admin", "actor": "old-user", "tenant": None, "scopes": None, "key_prefix": "old_"}
@@ -158,7 +158,7 @@ class TestPydanticValidation:
             except HTTPError as e:
                 assert e.code == 400 or e.code == 422
 
-    def test_agent_policy_atl_out_of_range(self, live_server):
+    def test_agent_policy_atl_out_of_range(self, db_path, live_server):
         """Pydantic rejects atl > 3."""
         with patch.dict(os.environ, {"CONVERGE_AUTH_REQUIRED": "0", "CONVERGE_RATE_LIMIT_ENABLED": "0"}):
             req = Request(
@@ -173,7 +173,7 @@ class TestPydanticValidation:
             except HTTPError as e:
                 assert e.code == 400 or e.code == 422
 
-    def test_agent_authorize_missing_fields(self, live_server):
+    def test_agent_authorize_missing_fields(self, db_path, live_server):
         """Pydantic rejects missing required fields in authorize."""
         with patch.dict(os.environ, {"CONVERGE_AUTH_REQUIRED": "0", "CONVERGE_RATE_LIMIT_ENABLED": "0"}):
             req = Request(
@@ -188,7 +188,7 @@ class TestPydanticValidation:
             except HTTPError as e:
                 assert e.code == 400 or e.code == 422
 
-    def test_invalid_json_body(self, live_server):
+    def test_invalid_json_body(self, db_path, live_server):
         """Malformed JSON is rejected with clear error."""
         with patch.dict(os.environ, {"CONVERGE_AUTH_REQUIRED": "0", "CONVERGE_RATE_LIMIT_ENABLED": "0"}):
             req = Request(
@@ -219,7 +219,7 @@ class TestAccessAuditing:
 
             # Give the server a moment to write the event
             time.sleep(0.2)
-            events = event_log.query(db_path, event_type="access.denied")
+            events = event_log.query(event_type="access.denied")
             assert len(events) >= 1
             assert events[0]["payload"]["reason"] == "no_api_key"
 
@@ -238,7 +238,7 @@ class TestAccessAuditing:
             )
             urlopen(req)
             time.sleep(0.2)
-            events = event_log.query(db_path, event_type="access.granted")
+            events = event_log.query(event_type="access.granted")
             assert len(events) >= 1
 
 

@@ -1,9 +1,10 @@
-"""Policy engine: loads config, evaluates the 3 gates, manages risk policies.
+"""Policy engine: loads config, evaluates the 4 gates, manages risk policies.
 
 Gates:
   1. Verification — required checks passed for the risk level.
   2. Containment — containment_score >= threshold.
   3. Entropy — entropy_delta within budget.
+  4. Security — no critical/high findings above threshold.
 """
 
 from __future__ import annotations
@@ -13,6 +14,23 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from converge.defaults import (
+    CALIB_CRITICAL_MULT,
+    CALIB_FLOOR_CRITICAL,
+    CALIB_FLOOR_HIGH,
+    CALIB_FLOOR_LOW,
+    CALIB_FLOOR_MEDIUM,
+    CALIB_LOW_MULT,
+    CALIB_P75,
+    CALIB_P90,
+    CALIB_P95,
+    DEFAULT_PROFILES,
+    DEFAULT_QUEUE_CONFIG,
+    DEFAULT_RISK_THRESHOLDS,
+    RISK_GATE_CHECKS,
+    ROLLOUT_DIVISOR,
+    ROLLOUT_HASH_CHARS,
+)
 from converge.models import (
     GateName,
     GateResult,
@@ -20,50 +38,6 @@ from converge.models import (
     PolicyVerdict,
     RiskLevel,
 )
-
-# --- Calibration constants ---
-_CALIB_P75 = 0.75
-_CALIB_P90 = 0.90
-_CALIB_P95 = 0.95
-_CALIB_LOW_MULT = 1.5
-_CALIB_CRITICAL_MULT = 0.8
-_CALIB_FLOOR_LOW = 10.0
-_CALIB_FLOOR_MEDIUM = 8.0
-_CALIB_FLOOR_HIGH = 5.0
-_CALIB_FLOOR_CRITICAL = 3.0
-
-# --- Risk gate breach checks (metric, threshold_key, default) ---
-_RISK_GATE_CHECKS: list[tuple[str, str, float]] = [
-    ("risk_score", "max_risk_score", 65.0),
-    ("damage_score", "max_damage_score", 60.0),
-    ("propagation_score", "max_propagation_score", 55.0),
-]
-
-# --- Rollout hashing ---
-_ROLLOUT_HASH_CHARS = 8
-_ROLLOUT_DIVISOR = 0xFFFFFFFF
-
-# ---------------------------------------------------------------------------
-# Default profiles (embedded, overridable via JSON)
-# ---------------------------------------------------------------------------
-
-DEFAULT_PROFILES: dict[str, dict[str, Any]] = {
-    "low":      {"entropy_budget": 25.0, "containment_min": 0.3, "blast_limit": 50.0, "checks": ["lint"]},
-    "medium":   {"entropy_budget": 18.0, "containment_min": 0.5, "blast_limit": 35.0, "checks": ["lint"]},
-    "high":     {"entropy_budget": 12.0, "containment_min": 0.7, "blast_limit": 20.0, "checks": ["lint", "unit_tests"]},
-    "critical": {"entropy_budget":  6.0, "containment_min": 0.85, "blast_limit": 10.0, "checks": ["lint", "unit_tests"]},
-}
-
-DEFAULT_RISK_THRESHOLDS: dict[str, float] = {
-    "max_risk_score": 65.0,
-    "max_damage_score": 60.0,
-    "max_propagation_score": 55.0,
-}
-
-DEFAULT_QUEUE: dict[str, Any] = {
-    "max_retries": 3,
-    "default_target": "main",
-}
 
 
 # ---------------------------------------------------------------------------
@@ -75,16 +49,27 @@ class PolicyConfig:
     profiles: dict[str, dict[str, Any]]
     queue: dict[str, Any]
     risk: dict[str, Any]
+    origin_overrides: dict[str, dict[str, dict[str, Any]]] | None = None
 
-    def profile_for(self, risk_level: RiskLevel | str) -> dict[str, Any]:
+    def profile_for(
+        self, risk_level: RiskLevel | str, origin_type: str | None = None,
+    ) -> dict[str, Any]:
         key = risk_level.value if isinstance(risk_level, RiskLevel) else risk_level
-        return self.profiles.get(key, self.profiles["medium"])
+        base = dict(self.profiles.get(key, self.profiles["medium"]))
+        # Apply origin-specific overrides if present
+        if origin_type and self.origin_overrides:
+            origin_rules = self.origin_overrides.get(origin_type, {})
+            overrides = origin_rules.get(key, origin_rules.get("_default", {}))
+            if overrides:
+                base.update(overrides)
+        return base
 
 
 def load_config(config_path: str | Path | None = None) -> PolicyConfig:
     profiles = dict(DEFAULT_PROFILES)
-    queue = dict(DEFAULT_QUEUE)
+    queue = dict(DEFAULT_QUEUE_CONFIG)
     risk = dict(DEFAULT_RISK_THRESHOLDS)
+    origin_overrides = None
 
     paths_to_try: list[Path] = []
     if config_path:
@@ -105,9 +90,14 @@ def load_config(config_path: str | Path | None = None) -> PolicyConfig:
                 queue.update(data["queue"])
             if "risk" in data:
                 risk.update(data["risk"])
+            if "origin_overrides" in data:
+                origin_overrides = data["origin_overrides"]
             break
 
-    return PolicyConfig(profiles=profiles, queue=queue, risk=risk)
+    return PolicyConfig(
+        profiles=profiles, queue=queue, risk=risk,
+        origin_overrides=origin_overrides,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -120,13 +110,15 @@ def evaluate(
     checks_passed: list[str],
     entropy_delta: float,
     containment_score: float,
+    security_findings: list[dict[str, Any]] | None = None,
     config: PolicyConfig | None = None,
+    origin_type: str | None = None,
 ) -> PolicyEvaluation:
-    """Evaluate the 3 policy gates. Returns ALLOW or BLOCK with gate details."""
+    """Evaluate the 4 policy gates. Returns ALLOW or BLOCK with gate details."""
     if config is None:
         config = load_config()
 
-    profile = config.profile_for(risk_level)
+    profile = config.profile_for(risk_level, origin_type=origin_type)
     gates: list[GateResult] = []
 
     # Gate 1: Verification — required checks
@@ -160,12 +152,42 @@ def evaluate(
         threshold=entropy_budget,
     ))
 
+    # Gate 4: Security — no critical/high findings above threshold
+    if security_findings is not None:
+        gates.append(_evaluate_security_gate(security_findings, profile))
+
     all_passed = all(g.passed for g in gates)
     return PolicyEvaluation(
         verdict=PolicyVerdict.ALLOW if all_passed else PolicyVerdict.BLOCK,
         gates=gates,
-        risk_level=risk_level,
+        risk_level=risk_level if isinstance(risk_level, RiskLevel) else RiskLevel(risk_level),
         profile_used=risk_level.value if isinstance(risk_level, RiskLevel) else risk_level,
+    )
+
+
+def _evaluate_security_gate(
+    findings: list[dict[str, Any]],
+    profile: dict[str, Any],
+) -> GateResult:
+    """Evaluate the security gate based on finding severity counts."""
+    critical = sum(1 for f in findings if f.get("severity") == "critical")
+    high = sum(1 for f in findings if f.get("severity") == "high")
+
+    security_cfg = profile.get("security", {})
+    max_critical = security_cfg.get("max_critical", 0)
+    max_high = security_cfg.get("max_high", 2)
+
+    passed = critical <= max_critical and high <= max_high
+    reason = (
+        f"Security: {critical} critical, {high} high "
+        f"(max critical={max_critical}, max high={max_high})"
+    )
+    return GateResult(
+        gate=GateName.SECURITY,
+        passed=passed,
+        reason=reason,
+        value=float(critical * 10 + high),
+        threshold=float(max_critical * 10 + max_high),
     )
 
 
@@ -176,8 +198,8 @@ def _rollout_bucket(intent_id: str) -> float:
     This ensures consistent behavior across retries.
     """
     import hashlib
-    h = hashlib.sha256(intent_id.encode()).hexdigest()[:_ROLLOUT_HASH_CHARS]
-    return int(h, 16) / _ROLLOUT_DIVISOR
+    h = hashlib.sha256(intent_id.encode()).hexdigest()[:ROLLOUT_HASH_CHARS]
+    return int(h, 16) / ROLLOUT_DIVISOR
 
 
 def evaluate_risk_gate(
@@ -200,7 +222,7 @@ def evaluate_risk_gate(
     t = thresholds or DEFAULT_RISK_THRESHOLDS
     scores = {"risk_score": risk_score, "damage_score": damage_score, "propagation_score": propagation_score}
     breaches = []
-    for metric, threshold_key, default in _RISK_GATE_CHECKS:
+    for metric, threshold_key, default in RISK_GATE_CHECKS:
         value = scores[metric]
         limit = t.get(threshold_key, default)
         if value > limit:
@@ -239,13 +261,13 @@ def calibrate_profiles(
 
     entropy_vals = sorted(s.get("entropy_score", 0) for s in historical_scores)
     n = len(entropy_vals)
-    p75 = entropy_vals[int(n * _CALIB_P75)] if n > 0 else 18.0
-    p90 = entropy_vals[int(n * _CALIB_P90)] if n > 0 else 12.0
-    p95 = entropy_vals[int(n * _CALIB_P95)] if n > 0 else 6.0
+    p75 = entropy_vals[int(n * CALIB_P75)] if n > 0 else 18.0
+    p90 = entropy_vals[int(n * CALIB_P90)] if n > 0 else 12.0
+    p95 = entropy_vals[int(n * CALIB_P95)] if n > 0 else 6.0
 
-    profiles["low"]["entropy_budget"] = round(max(p75 * _CALIB_LOW_MULT, _CALIB_FLOOR_LOW), 1)
-    profiles["medium"]["entropy_budget"] = round(max(p75, _CALIB_FLOOR_MEDIUM), 1)
-    profiles["high"]["entropy_budget"] = round(max(p90, _CALIB_FLOOR_HIGH), 1)
-    profiles["critical"]["entropy_budget"] = round(max(p95 * _CALIB_CRITICAL_MULT, _CALIB_FLOOR_CRITICAL), 1)
+    profiles["low"]["entropy_budget"] = round(max(p75 * CALIB_LOW_MULT, CALIB_FLOOR_LOW), 1)
+    profiles["medium"]["entropy_budget"] = round(max(p75, CALIB_FLOOR_MEDIUM), 1)
+    profiles["high"]["entropy_budget"] = round(max(p90, CALIB_FLOOR_HIGH), 1)
+    profiles["critical"]["entropy_budget"] = round(max(p95 * CALIB_CRITICAL_MULT, CALIB_FLOOR_CRITICAL), 1)
 
     return profiles

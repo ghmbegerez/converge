@@ -5,17 +5,18 @@ from __future__ import annotations
 import argparse
 
 from converge.cli._helpers import _out
+from converge.defaults import QUERY_LIMIT_LARGE
 from converge.models import EventType
 
 
 def cmd_risk_eval(args: argparse.Namespace) -> int:
     from converge import event_log, risk as risk_mod
     from converge.models import Simulation
-    intent = event_log.get_intent(args.db, args.intent_id)
+    intent = event_log.get_intent(args.intent_id)
     if intent is None:
         return _out({"error": f"Intent {args.intent_id} not found"})
     # Use last simulation if available
-    sim_events = event_log.query(args.db, event_type=EventType.SIMULATION_COMPLETED, intent_id=args.intent_id, limit=1)
+    sim_events = event_log.query(event_type=EventType.SIMULATION_COMPLETED, intent_id=args.intent_id, limit=1)
     if sim_events:
         p = sim_events[0]["payload"]
         sim = Simulation(mergeable=p["mergeable"], conflicts=p.get("conflicts", []),
@@ -23,7 +24,7 @@ def cmd_risk_eval(args: argparse.Namespace) -> int:
     else:
         sim = Simulation(mergeable=True)
     result = risk_mod.evaluate_risk(intent, sim)
-    event_log.append(args.db, event_log.Event(
+    event_log.append(event_log.Event(
         event_type=EventType.RISK_EVALUATED,
         intent_id=args.intent_id,
         tenant_id=getattr(args, "tenant_id", None),
@@ -34,14 +35,14 @@ def cmd_risk_eval(args: argparse.Namespace) -> int:
 
 def cmd_risk_shadow(args: argparse.Namespace) -> int:
     from converge import event_log, policy as policy_mod
-    risk_events = event_log.query(args.db, event_type=EventType.RISK_EVALUATED, intent_id=args.intent_id, limit=1)
+    risk_events = event_log.query(event_type=EventType.RISK_EVALUATED, intent_id=args.intent_id, limit=1)
     if not risk_events:
         return _out({"error": "No risk evaluation found. Run 'converge risk eval' first."})
     r = risk_events[0]["payload"]
     tenant = getattr(args, "tenant_id", None)
     thresholds = None
     if tenant:
-        thresholds = event_log.get_risk_policy(args.db, tenant)
+        thresholds = event_log.get_risk_policy(tenant)
     result = policy_mod.evaluate_risk_gate(
         risk_score=r.get("risk_score", 0),
         damage_score=r.get("damage_score", 0),
@@ -50,7 +51,7 @@ def cmd_risk_shadow(args: argparse.Namespace) -> int:
         mode="shadow",
     )
     result["intent_id"] = args.intent_id
-    event_log.append(args.db, event_log.Event(
+    event_log.append(event_log.Event(
         event_type=EventType.RISK_SHADOW_EVALUATED,
         intent_id=args.intent_id,
         tenant_id=tenant,
@@ -61,8 +62,8 @@ def cmd_risk_shadow(args: argparse.Namespace) -> int:
 
 def cmd_risk_gate(args: argparse.Namespace) -> int:
     from converge import event_log
-    events = event_log.query(args.db, event_type=EventType.POLICY_EVALUATED,
-                             tenant_id=getattr(args, "tenant_id", None), limit=1000)
+    events = event_log.query(event_type=EventType.POLICY_EVALUATED,
+                             tenant_id=getattr(args, "tenant_id", None), limit=QUERY_LIMIT_LARGE)
     blocked = [e for e in events if e["payload"].get("verdict") == "BLOCK"]
     return _out({
         "total_evaluations": len(events),
@@ -74,7 +75,7 @@ def cmd_risk_gate(args: argparse.Namespace) -> int:
 
 def cmd_risk_review(args: argparse.Namespace) -> int:
     from converge import analytics
-    return _out(analytics.risk_review(args.db, args.intent_id,
+    return _out(analytics.risk_review(args.intent_id,
                                        tenant_id=getattr(args, "tenant_id", None)))
 
 
@@ -91,8 +92,8 @@ def cmd_risk_policy_set(args: argparse.Namespace) -> int:
         data["mode"] = args.mode
     if args.enforce_ratio is not None:
         data["enforce_ratio"] = args.enforce_ratio
-    event_log.upsert_risk_policy(args.db, args.tenant_id, data)
-    event_log.append(args.db, event_log.Event(
+    event_log.upsert_risk_policy(args.tenant_id, data)
+    event_log.append(event_log.Event(
         event_type=EventType.RISK_POLICY_UPDATED,
         tenant_id=args.tenant_id,
         payload=data,
@@ -102,13 +103,13 @@ def cmd_risk_policy_set(args: argparse.Namespace) -> int:
 
 def cmd_risk_policy_get(args: argparse.Namespace) -> int:
     from converge import event_log
-    data = event_log.get_risk_policy(args.db, args.tenant_id)
+    data = event_log.get_risk_policy(args.tenant_id)
     return _out(data or {"message": "No risk policy configured for this tenant"})
 
 
 def cmd_policy_eval(args: argparse.Namespace) -> int:
     from converge import engine, event_log
-    intent = event_log.get_intent(args.db, args.intent_id)
+    intent = event_log.get_intent(args.intent_id)
     if intent is None:
         return _out({"error": f"Intent {args.intent_id} not found"})
     modified = False
@@ -119,9 +120,9 @@ def cmd_policy_eval(args: argparse.Namespace) -> int:
         intent.target = args.target
         modified = True
     if modified:
-        event_log.upsert_intent(args.db, intent)
+        event_log.upsert_intent(intent)
     result = engine.validate_intent(
-        intent, args.db,
+        intent,
         use_last_simulation=args.use_last_simulation,
         skip_checks=args.skip_checks,
     )
@@ -130,5 +131,5 @@ def cmd_policy_eval(args: argparse.Namespace) -> int:
 
 def cmd_policy_calibrate(args: argparse.Namespace) -> int:
     from converge import analytics
-    result = analytics.run_calibration(args.db, output_path=getattr(args, "output", None))
+    result = analytics.run_calibration(output_path=getattr(args, "output", None))
     return _out(result)

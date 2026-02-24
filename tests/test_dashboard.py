@@ -51,7 +51,7 @@ def live_server(db_path):
         thread.join(timeout=5)
 
 
-def _seed_data(db_path):
+def _seed_data():
     """Seed the database with sample intents and events for dashboard tests."""
     intent = Intent(
         id="dash-test-001",
@@ -63,10 +63,10 @@ def _seed_data(db_path):
         priority=2,
         tenant_id="team-a",
     )
-    event_log.upsert_intent(db_path, intent)
+    event_log.upsert_intent(intent)
 
     # Simulation event
-    event_log.append(db_path, Event(
+    event_log.append(Event(
         event_type=EventType.SIMULATION_COMPLETED,
         intent_id="dash-test-001",
         tenant_id="team-a",
@@ -80,7 +80,7 @@ def _seed_data(db_path):
     ))
 
     # Risk event
-    event_log.append(db_path, Event(
+    event_log.append(Event(
         event_type=EventType.RISK_EVALUATED,
         intent_id="dash-test-001",
         tenant_id="team-a",
@@ -105,7 +105,7 @@ def _seed_data(db_path):
     ))
 
     # Policy event
-    event_log.append(db_path, Event(
+    event_log.append(Event(
         event_type=EventType.POLICY_EVALUATED,
         intent_id="dash-test-001",
         tenant_id="team-a",
@@ -131,7 +131,7 @@ def _seed_data(db_path):
         priority=1,
         tenant_id="team-a",
     )
-    event_log.upsert_intent(db_path, intent2)
+    event_log.upsert_intent(intent2)
 
 
 # ---------------------------------------------------------------------------
@@ -142,7 +142,7 @@ def _seed_data(db_path):
 class TestDashboard:
     def test_dashboard_returns_all_sections(self, live_server, db_path):
         """Dashboard endpoint returns health, queue, compliance, risk_trend, predictions, metrics."""
-        _seed_data(db_path)
+        _seed_data()
 
         resp = urlopen(f"{live_server}/api/dashboard")
         data = json.loads(resp.read())
@@ -168,7 +168,7 @@ class TestDashboard:
 
     def test_dashboard_with_tenant_filter(self, live_server, db_path):
         """Dashboard filters by tenant when specified."""
-        _seed_data(db_path)
+        _seed_data()
 
         resp = urlopen(f"{live_server}/api/dashboard?tenant_id=team-a")
         data = json.loads(resp.read())
@@ -183,7 +183,7 @@ class TestDashboard:
 
     def test_dashboard_alerts_endpoint(self, live_server, db_path):
         """Dashboard alerts combines compliance and predictions."""
-        _seed_data(db_path)
+        _seed_data()
 
         resp = urlopen(f"{live_server}/api/dashboard/alerts")
         data = json.loads(resp.read())
@@ -208,7 +208,7 @@ class TestDashboard:
 class TestExportHTTP:
     def test_export_jsonl(self, live_server, db_path):
         """Export decisions as JSONL via HTTP."""
-        _seed_data(db_path)
+        _seed_data()
 
         resp = urlopen(f"{live_server}/api/export/decisions?fmt=jsonl")
         body = resp.read().decode()
@@ -226,7 +226,7 @@ class TestExportHTTP:
 
     def test_export_csv(self, live_server, db_path):
         """Export decisions as CSV via HTTP."""
-        _seed_data(db_path)
+        _seed_data()
 
         resp = urlopen(f"{live_server}/api/export/decisions?fmt=csv")
         body = resp.read().decode()
@@ -276,7 +276,7 @@ class TestDeploymentSmoke:
 
     def test_v1_prefix_works(self, live_server, db_path):
         """V1 prefix routes to same endpoints as /api."""
-        _seed_data(db_path)
+        _seed_data()
 
         resp = urlopen(f"{live_server}/v1/dashboard")
         data = json.loads(resp.read())
