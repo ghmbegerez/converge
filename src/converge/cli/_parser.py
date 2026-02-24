@@ -9,23 +9,35 @@ from converge.defaults import DEFAULT_TARGET_BRANCH
 from converge.models import Status
 
 
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="converge", description="Code entropy control through semantic merge coordination")
+def build_parser(*, show_all: bool = True) -> argparse.ArgumentParser:
+    epilog = None if show_all else (
+        "\nUse 'converge --help-all' to see all available commands "
+        "(risk, health, compliance, agent, audit, semantic, review, intake, security, export)."
+    )
+    parser = argparse.ArgumentParser(
+        prog="converge",
+        description="Code entropy control through semantic merge coordination",
+        epilog=epilog,
+    )
     parser.add_argument("--db", default=_default_db(), help="SQLite database path")
     parser.add_argument("--actor", default="system", help="Actor identity for audit")
     sub = parser.add_subparsers(dest="command")
 
+    # Essential commands (always visible)
     _register_intent_commands(sub)
     _register_queue_commands(sub)
-    _register_risk_commands(sub)
-    _register_health_commands(sub)
-    _register_agent_commands(sub)
-    _register_audit_commands(sub)
-    _register_semantic_commands(sub)
-    _register_review_commands(sub)
-    _register_intake_commands(sub)
-    _register_export_commands(sub)
     _register_server_commands(sub)
+
+    # Advanced commands (visible with --help-all)
+    if show_all:
+        _register_risk_commands(sub)
+        _register_health_commands(sub)
+        _register_agent_commands(sub)
+        _register_audit_commands(sub)
+        _register_semantic_commands(sub)
+        _register_review_commands(sub)
+        _register_intake_commands(sub)
+        _register_export_commands(sub)
 
     return parser
 

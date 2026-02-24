@@ -192,8 +192,16 @@ _SUBCMD_ATTR = {
 def main(argv: list[str] | None = None) -> int:
     from converge import event_log as el
 
-    parser = build_parser()
-    args = parser.parse_args(argv if argv is not None else sys.argv[1:])
+    raw = argv if argv is not None else sys.argv[1:]
+
+    # --help-all: show the full command set
+    if "--help-all" in raw:
+        build_parser(show_all=True).print_help()
+        return 0
+
+    # Default --help shows only essential commands
+    parser = build_parser(show_all="--help" not in raw)
+    args = parser.parse_args(raw)
 
     if not args.command:
         parser.print_help()
