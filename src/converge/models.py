@@ -60,6 +60,13 @@ class GateName(str, Enum):
     ENTROPY = "entropy"
     RISK = "risk"
     SECURITY = "security"
+    COHERENCE = "coherence"
+
+
+class CoherenceVerdict(str, Enum):
+    PASS = "pass"
+    WARN = "warn"
+    FAIL = "fail"
 
 
 from converge.event_types import EventType  # noqa: F401
@@ -310,6 +317,60 @@ class RiskEval:
             "bombs": self.bombs,
             "timestamp": self.timestamp,
             "tenant_id": self.tenant_id,
+        }
+
+
+# ---------------------------------------------------------------------------
+# Coherence harness
+# ---------------------------------------------------------------------------
+
+@dataclass
+class CoherenceQuestion:
+    id: str
+    question: str
+    check: str
+    assertion: str
+    severity: str = "high"       # critical | high | medium
+    category: str = "structural"  # structural | semantic | health
+
+
+@dataclass
+class CoherenceResult:
+    question_id: str
+    question: str
+    verdict: str    # pass | warn | fail
+    value: float
+    baseline: float | None
+    assertion: str
+    error: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "question_id": self.question_id,
+            "question": self.question,
+            "verdict": self.verdict,
+            "value": self.value,
+            "baseline": self.baseline,
+            "assertion": self.assertion,
+            "error": self.error,
+        }
+
+
+@dataclass
+class CoherenceEvaluation:
+    coherence_score: float          # 0-100
+    verdict: str                    # pass | warn | fail
+    results: list[CoherenceResult]
+    harness_version: str
+    inconsistencies: list[dict[str, Any]] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "coherence_score": self.coherence_score,
+            "verdict": self.verdict,
+            "results": [r.to_dict() for r in self.results],
+            "harness_version": self.harness_version,
+            "inconsistencies": self.inconsistencies,
         }
 
 

@@ -102,7 +102,7 @@ class TestCouplingData:
         assert isinstance(result, list)
         assert len(result) == 0
 
-    def test_load_coupling_from_snapshot(self, db_path, tmp_path):
+    def test_load_coupling_from_snapshot(self, db_path, tmp_path, monkeypatch):
         """Loads coupling from cached snapshot."""
         snapshot = {
             "coupling": [
@@ -114,19 +114,14 @@ class TestCouplingData:
         snapshot_dir.mkdir()
         (snapshot_dir / "archaeology_snapshot.json").write_text(json.dumps(snapshot))
 
-        import os
-        old_cwd = os.getcwd()
-        os.chdir(tmp_path)
-        try:
-            result = analytics.load_coupling_data()
-            assert len(result) == 2
-            assert result[0]["file_a"] == "a.py"
-        finally:
-            os.chdir(old_cwd)
+        monkeypatch.chdir(tmp_path)
+        result = analytics.load_coupling_data()
+        assert len(result) == 2
+        assert result[0]["file_a"] == "a.py"
 
 
 class TestHotspotSet:
-    def test_load_hotspot_from_snapshot(self, db_path, tmp_path):
+    def test_load_hotspot_from_snapshot(self, db_path, tmp_path, monkeypatch):
         """Loads hotspots from cached snapshot."""
         snapshot = {
             "hotspots": [
@@ -138,15 +133,10 @@ class TestHotspotSet:
         snapshot_dir.mkdir()
         (snapshot_dir / "archaeology_snapshot.json").write_text(json.dumps(snapshot))
 
-        import os
-        old_cwd = os.getcwd()
-        os.chdir(tmp_path)
-        try:
-            result = analytics.load_hotspot_set()
-            assert "hot.py" in result
-            assert "cold.py" not in result  # below threshold
-        finally:
-            os.chdir(old_cwd)
+        monkeypatch.chdir(tmp_path)
+        result = analytics.load_hotspot_set()
+        assert "hot.py" in result
+        assert "cold.py" not in result  # below threshold
 
 
 class TestRiskReview:

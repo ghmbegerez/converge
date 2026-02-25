@@ -97,14 +97,21 @@ SECURITY_GATE_DEFAULTS: dict[str, dict[str, int]] = {
 }
 
 # ---------------------------------------------------------------------------
+# Coherence harness thresholds
+# ---------------------------------------------------------------------------
+
+COHERENCE_PASS_THRESHOLD = 75
+COHERENCE_WARN_THRESHOLD = 60
+
+# ---------------------------------------------------------------------------
 # Policy profiles (embedded defaults, overridable via JSON)
 # ---------------------------------------------------------------------------
 
 DEFAULT_PROFILES: dict[str, dict] = {
-    "low":      {"entropy_budget": 25.0, "containment_min": 0.3, "blast_limit": 50.0, "checks": ["lint"]},
-    "medium":   {"entropy_budget": 18.0, "containment_min": 0.5, "blast_limit": 35.0, "checks": ["lint"]},
-    "high":     {"entropy_budget": 12.0, "containment_min": 0.7, "blast_limit": 20.0, "checks": ["lint", "unit_tests"]},
-    "critical": {"entropy_budget":  6.0, "containment_min": 0.85, "blast_limit": 10.0, "checks": ["lint", "unit_tests"]},
+    "low":      {"entropy_budget": 25.0, "containment_min": 0.3, "blast_limit": 50.0, "checks": ["lint"], "coherence_pass": 75, "coherence_warn": 60},
+    "medium":   {"entropy_budget": 18.0, "containment_min": 0.5, "blast_limit": 35.0, "checks": ["lint"], "coherence_pass": 75, "coherence_warn": 60},
+    "high":     {"entropy_budget": 12.0, "containment_min": 0.7, "blast_limit": 20.0, "checks": ["lint", "unit_tests"], "coherence_pass": 80, "coherence_warn": 65},
+    "critical": {"entropy_budget":  6.0, "containment_min": 0.85, "blast_limit": 10.0, "checks": ["lint", "unit_tests"], "coherence_pass": 85, "coherence_warn": 70},
 }
 
 DEFAULT_RISK_THRESHOLDS: dict[str, float] = {
@@ -121,6 +128,17 @@ DEFAULT_QUEUE_CONFIG: dict[str, object] = {
 # ---------------------------------------------------------------------------
 # Risk gate checks (metric_key, threshold_key, default_value)
 # ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# Risk classification thresholds (Initiative 2)
+# ---------------------------------------------------------------------------
+
+RISK_CLASSIFICATION_THRESHOLDS: dict[str, float] = {
+    "low": 0.0,
+    "medium": 25.0,
+    "high": 50.0,
+    "critical": 75.0,
+}
 
 RISK_GATE_CHECKS: list[tuple[str, str, float]] = [
     ("risk_score", "max_risk_score", MAX_RISK_SCORE),

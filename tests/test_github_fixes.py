@@ -127,36 +127,6 @@ class TestWorkerHttpxImport:
 # P1: push webhook multi-repo filtering
 # ---------------------------------------------------------------------------
 
-@pytest.fixture
-def live_server(db_path):
-    import uvicorn
-    from converge.api import create_app
-
-    with patch.dict(os.environ, {
-        "CONVERGE_AUTH_REQUIRED": "0",
-        "CONVERGE_RATE_LIMIT_ENABLED": "0",
-    }):
-        app = create_app(db_path=str(db_path), webhook_secret="")
-
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.bind(("127.0.0.1", 0))
-            port = s.getsockname()[1]
-
-        config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="error")
-        server = uvicorn.Server(config)
-        thread = threading.Thread(target=server.run, daemon=True)
-        thread.start()
-
-        deadline = time.time() + 10
-        while not server.started and time.time() < deadline:
-            time.sleep(0.05)
-
-        yield f"http://127.0.0.1:{port}"
-
-        server.should_exit = True
-        thread.join(timeout=5)
-
-
 def _webhook(url: str, event: str, payload: dict, delivery_id: str = "d-1") -> dict:
     req = Request(
         url,
@@ -373,6 +343,7 @@ class TestWebhookRateLimitExempt:
                 server.should_exit = True
                 thread.join(timeout=5)
                 reset_limiter()
+                time.sleep(0.2)  # allow OS to fully release the port
 
 
 # ---------------------------------------------------------------------------

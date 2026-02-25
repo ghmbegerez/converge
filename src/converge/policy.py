@@ -1,10 +1,11 @@
-"""Policy engine: loads config, evaluates the 4 gates, manages risk policies.
+"""Policy engine: loads config, evaluates the 5 gates, manages risk policies.
 
 Gates:
   1. Verification — required checks passed for the risk level.
   2. Containment — containment_score >= threshold.
   3. Entropy — entropy_delta within budget.
   4. Security — no critical/high findings above threshold.
+  5. Coherence — coherence score above configured threshold.
 """
 
 from __future__ import annotations
@@ -24,6 +25,8 @@ from converge.defaults import (
     CALIB_P75,
     CALIB_P90,
     CALIB_P95,
+    COHERENCE_PASS_THRESHOLD,
+    COHERENCE_WARN_THRESHOLD,
     DEFAULT_PROFILES,
     DEFAULT_QUEUE_CONFIG,
     DEFAULT_RISK_THRESHOLDS,
@@ -111,10 +114,11 @@ def evaluate(
     entropy_delta: float,
     containment_score: float,
     security_findings: list[dict[str, Any]] | None = None,
+    coherence_score: float | None = None,
     config: PolicyConfig | None = None,
     origin_type: str | None = None,
 ) -> PolicyEvaluation:
-    """Evaluate the 4 policy gates. Returns ALLOW or BLOCK with gate details."""
+    """Evaluate the 5 policy gates. Returns ALLOW or BLOCK with gate details."""
     if config is None:
         config = load_config()
 
@@ -153,8 +157,12 @@ def evaluate(
     ))
 
     # Gate 4: Security — no critical/high findings above threshold
-    if security_findings is not None:
-        gates.append(_evaluate_security_gate(security_findings, profile))
+    # Always evaluate (defaults to empty list = pass with 0 findings)
+    gates.append(_evaluate_security_gate(security_findings or [], profile))
+
+    # Gate 5: Coherence — coherence score above threshold
+    if coherence_score is not None:
+        gates.append(_evaluate_coherence_gate(coherence_score, profile))
 
     all_passed = all(g.passed for g in gates)
     return PolicyEvaluation(
@@ -162,6 +170,39 @@ def evaluate(
         gates=gates,
         risk_level=risk_level if isinstance(risk_level, RiskLevel) else RiskLevel(risk_level),
         profile_used=risk_level.value if isinstance(risk_level, RiskLevel) else risk_level,
+    )
+
+
+def _evaluate_coherence_gate(
+    coherence_score: float,
+    profile: dict[str, Any],
+) -> GateResult:
+    """Evaluate the coherence gate based on harness score.
+
+    Score >= pass threshold → PASS (gate passes)
+    Score >= warn threshold → WARN (gate passes with flag)
+    Score < warn threshold → FAIL (gate blocks)
+    """
+    pass_threshold = profile.get("coherence_pass", COHERENCE_PASS_THRESHOLD)
+    warn_threshold = profile.get("coherence_warn", COHERENCE_WARN_THRESHOLD)
+
+    # Gate passes if score is at or above the warn threshold
+    # (warn is a soft pass — the coherence step in engine handles escalation)
+    passed = coherence_score >= warn_threshold
+    reason = f"Coherence score {coherence_score:.1f} "
+    if coherence_score >= pass_threshold:
+        reason += f"(pass threshold={pass_threshold})"
+    elif coherence_score >= warn_threshold:
+        reason += f"(warn zone: {warn_threshold}-{pass_threshold})"
+    else:
+        reason += f"below warn threshold {warn_threshold}"
+
+    return GateResult(
+        gate=GateName.COHERENCE,
+        passed=passed,
+        reason=reason,
+        value=coherence_score,
+        threshold=float(warn_threshold),
     )
 
 

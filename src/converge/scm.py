@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import re
+import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 
 from converge.models import Simulation, now_iso
@@ -63,12 +65,59 @@ def simulate_merge(source: str, target: str, cwd: str | Path | None = None) -> S
 
 
 def execute_merge(source: str, target: str, cwd: str | Path | None = None) -> str:
-    """Execute a real merge (ff or no-ff). Returns the merge commit SHA."""
+    """Execute a real merge (ff or no-ff). Returns the merge commit SHA.
+
+    .. deprecated:: Use execute_merge_safe() instead — it isolates the merge
+       in a git worktree so the main working directory is never modified.
+    """
     root = repo_root(cwd)
     git("checkout", target, cwd=root)
     git("merge", "--no-ff", source, "-m", f"converge: merge {source} into {target}", cwd=root)
     result = git("rev-parse", "HEAD", cwd=root)
     return result.stdout.strip()
+
+
+def execute_merge_safe(source: str, target: str, cwd: str | Path | None = None) -> str:
+    """Execute a merge in an isolated git worktree. Returns the merge commit SHA.
+
+    The main working directory is never modified. Uses a detached worktree so
+    the target branch does not need to be free (it may already be checked out in
+    the main worktree). On success the target ref is updated to the merge commit.
+    On failure the worktree is cleaned up and the exception propagates.
+    """
+    root = repo_root(cwd)
+    worktree_dir = tempfile.mkdtemp(prefix="converge-merge-")
+    try:
+        # Create an isolated worktree at target's HEAD (detached)
+        git("worktree", "add", "--detach", worktree_dir, target, cwd=root)
+
+        # Perform the merge inside the worktree
+        git(
+            "merge", "--no-ff", source,
+            "-m", f"converge: merge {source} into {target}",
+            cwd=worktree_dir,
+        )
+
+        # Extract the SHA of the merge commit
+        result = git("rev-parse", "HEAD", cwd=worktree_dir)
+        sha = result.stdout.strip()
+
+        # Update the target branch ref to point to the merge commit
+        git("update-ref", f"refs/heads/{target}", sha, cwd=root)
+
+        return sha
+
+    finally:
+        # Always clean up the worktree
+        try:
+            git("worktree", "remove", "--force", worktree_dir, cwd=root)
+        except Exception:
+            # Fallback: remove the directory directly
+            shutil.rmtree(worktree_dir, ignore_errors=True)
+            try:
+                git("worktree", "prune", cwd=root)
+            except Exception:
+                pass
 
 
 def current_head(cwd: str | Path | None = None) -> str:

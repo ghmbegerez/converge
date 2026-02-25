@@ -220,75 +220,45 @@ def cmd_archaeology_refresh(args: argparse.Namespace) -> int:
 
 def cmd_review_request(args: argparse.Namespace) -> int:
     from converge import reviews
-    task = reviews.request_review(
-        args.intent_id,
-        trigger=getattr(args, "trigger", "manual"),
-        reviewer=getattr(args, "reviewer", None),
-        priority=getattr(args, "priority", None),
-        tenant_id=getattr(args, "tenant_id", None),
-    )
-    return _out(task.to_dict())
-
+    return _out(reviews.request_review(
+        args.intent_id, trigger=getattr(args, "trigger", "manual"),
+        reviewer=getattr(args, "reviewer", None), priority=getattr(args, "priority", None),
+        tenant_id=getattr(args, "tenant_id", None)).to_dict())
 
 def cmd_review_list(args: argparse.Namespace) -> int:
     from converge import event_log
     tasks = event_log.list_review_tasks(
-        intent_id=getattr(args, "intent_id", None),
-        status=getattr(args, "status", None),
-        reviewer=getattr(args, "reviewer", None),
-        tenant_id=getattr(args, "tenant_id", None),
-        limit=getattr(args, "limit", 50),
-    )
+        intent_id=getattr(args, "intent_id", None), status=getattr(args, "status", None),
+        reviewer=getattr(args, "reviewer", None), tenant_id=getattr(args, "tenant_id", None),
+        limit=getattr(args, "limit", 50))
     return _out([t.to_dict() for t in tasks])
-
 
 def cmd_review_assign(args: argparse.Namespace) -> int:
     from converge import reviews
-    task = reviews.assign_review(args.task_id, args.reviewer)
-    return _out(task.to_dict())
-
+    return _out(reviews.assign_review(args.task_id, args.reviewer).to_dict())
 
 def cmd_review_complete(args: argparse.Namespace) -> int:
     from converge import reviews
-    task = reviews.complete_review(
-        args.task_id,
-        resolution=args.resolution,
-        notes=getattr(args, "notes", ""),
-    )
-    return _out(task.to_dict())
-
+    return _out(reviews.complete_review(
+        args.task_id, resolution=args.resolution, notes=getattr(args, "notes", "")).to_dict())
 
 def cmd_review_cancel(args: argparse.Namespace) -> int:
     from converge import reviews
-    task = reviews.cancel_review(
-        args.task_id,
-        reason=getattr(args, "reason", ""),
-    )
-    return _out(task.to_dict())
-
+    return _out(reviews.cancel_review(args.task_id, reason=getattr(args, "reason", "")).to_dict())
 
 def cmd_review_escalate(args: argparse.Namespace) -> int:
     from converge import reviews
-    task = reviews.escalate_review(
-        args.task_id,
-        reason=getattr(args, "reason", "manual_escalation"),
-    )
-    return _out(task.to_dict())
-
+    return _out(reviews.escalate_review(
+        args.task_id, reason=getattr(args, "reason", "manual_escalation")).to_dict())
 
 def cmd_review_sla_check(args: argparse.Namespace) -> int:
     from converge import reviews
-    breaches = reviews.check_sla_breaches(
-        tenant_id=getattr(args, "tenant_id", None),
-    )
+    breaches = reviews.check_sla_breaches(tenant_id=getattr(args, "tenant_id", None))
     return _out({"breaches": breaches, "count": len(breaches)})
-
 
 def cmd_review_summary(args: argparse.Namespace) -> int:
     from converge import reviews
-    return _out(reviews.review_summary(
-        tenant_id=getattr(args, "tenant_id", None),
-    ))
+    return _out(reviews.review_summary(tenant_id=getattr(args, "tenant_id", None)))
 
 
 def cmd_semantic_status(args: argparse.Namespace) -> int:
@@ -457,6 +427,110 @@ def cmd_security_summary(args: argparse.Namespace) -> int:
     return _out(security.scan_summary(
         tenant_id=getattr(args, "tenant_id", None),
     ))
+
+
+# ---------------------------------------------------------------------------
+# Coherence harness
+# ---------------------------------------------------------------------------
+
+def cmd_coherence_init(args: argparse.Namespace) -> int:
+    from converge import coherence
+    return _out(coherence.init_harness())
+
+
+def cmd_coherence_list(args: argparse.Namespace) -> int:
+    from converge import coherence
+    return _out(coherence.list_questions(path=getattr(args, "path", None)))
+
+
+def cmd_coherence_run(args: argparse.Namespace) -> int:
+    from converge import coherence
+    questions = coherence.load_questions(path=getattr(args, "path", None))
+    if not questions:
+        return _out({"status": "no_questions", "message": "No coherence harness configured"})
+    result = coherence.evaluate(questions)
+    return _out(result.to_dict())
+
+
+def cmd_coherence_baseline(args: argparse.Namespace) -> int:
+    from converge import coherence
+    questions = coherence.load_questions()
+    if not questions:
+        return _out({"status": "no_questions", "message": "No coherence harness configured"})
+    result = coherence.evaluate(questions)
+    baselines = coherence.update_baselines(result.results)
+    return _out({"status": "updated", "baselines": baselines})
+
+
+def cmd_coherence_suggest(args: argparse.Namespace) -> int:
+    from converge import coherence_feedback
+    from converge.feature_flags import is_enabled
+    if not is_enabled("coherence_feedback"):
+        return _out({"status": "disabled", "message": "coherence_feedback flag is disabled"})
+    suggestions = coherence_feedback.analyze_patterns(
+        lookback_days=getattr(args, "lookback_days", 90),
+    )
+    count = coherence_feedback.emit_suggestions(suggestions)
+    return _out({"suggestions": suggestions, "emitted": count})
+
+
+def cmd_coherence_accept(args: argparse.Namespace) -> int:
+    from converge import coherence_feedback
+    result = coherence_feedback.accept_suggestion(args.suggestion_id)
+    if result is None:
+        return _out({"status": "not_found", "suggestion_id": args.suggestion_id})
+    return _out({"status": "accepted", "suggestion": result})
+
+
+# ---------------------------------------------------------------------------
+# Doctor
+# ---------------------------------------------------------------------------
+
+def cmd_doctor(args: argparse.Namespace) -> int:
+    """Validate environment setup and report health."""
+    import shutil
+    from converge import event_log, feature_flags
+
+    checks, overall = [], "pass"
+
+    def _add(name: str, status: str, detail: str | dict) -> None:
+        nonlocal overall
+        checks.append({"check": name, "status": status, "detail": detail})
+        if status == "fail":
+            overall = "fail"
+        elif status == "warn" and overall == "pass":
+            overall = "warn"
+
+    try:
+        event_log.query(limit=1)
+        _add("database", "pass", str(args.db))
+    except Exception as e:
+        _add("database", "fail", str(e))
+
+    try:
+        from converge import scm
+        _add("git_repo", "pass", str(scm.repo_root()))
+    except Exception:
+        _add("git_repo", "warn", "Not inside a git repository")
+
+    try:
+        event_log.list_intents(limit=1)
+        _add("schema", "pass", "intents table accessible")
+    except Exception as e:
+        _add("schema", "fail", str(e))
+
+    try:
+        flags = feature_flags.list_flags()
+        enabled = sum(1 for f in flags if f.get("enabled"))
+        _add("feature_flags", "pass", f"{enabled}/{len(flags)} enabled")
+    except Exception as e:
+        _add("feature_flags", "warn", str(e))
+
+    tools = {t: shutil.which(t) is not None for t in ("bandit", "gitleaks", "pip-audit")}
+    _add("security_tools", "pass" if any(tools.values()) else "warn",
+         {n: ("found" if v else "missing") for n, v in tools.items()})
+
+    return _out({"overall": overall, "checks": checks})
 
 
 # ---------------------------------------------------------------------------

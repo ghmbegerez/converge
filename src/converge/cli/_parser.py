@@ -28,6 +28,9 @@ def build_parser(*, show_all: bool = True) -> argparse.ArgumentParser:
     _register_queue_commands(sub)
     _register_server_commands(sub)
 
+    # Doctor command (always visible)
+    sub.add_parser("doctor", help="Validate environment setup and report health")
+
     # Advanced commands (visible with --help-all)
     if show_all:
         _register_risk_commands(sub)
@@ -38,6 +41,7 @@ def build_parser(*, show_all: bool = True) -> argparse.ArgumentParser:
         _register_review_commands(sub)
         _register_intake_commands(sub)
         _register_export_commands(sub)
+        _register_coherence_commands(sub)
 
     return parser
 
@@ -426,6 +430,28 @@ def _register_export_commands(sub: argparse._SubParsersAction) -> None:
     p.add_argument("--file", required=True, help="JSON file with draft intent data")
     p.add_argument("--mode", choices=["shadow", "enforce"], default="shadow")
     p.add_argument("--tenant-id")
+
+
+def _register_coherence_commands(sub: argparse._SubParsersAction) -> None:
+    # -- coherence --
+    coh_p = sub.add_parser("coherence", help="Coherence harness operations")
+    coh_sub = coh_p.add_subparsers(dest="coherence_cmd")
+
+    coh_sub.add_parser("init", help="Create coherence harness config with template")
+
+    p = coh_sub.add_parser("list", help="List configured questions and baselines")
+    p.add_argument("--path", help="Path to harness config file")
+
+    p = coh_sub.add_parser("run", help="Run coherence harness against current state")
+    p.add_argument("--path", help="Path to harness config file")
+
+    coh_sub.add_parser("baseline", help="Update baselines from current state")
+
+    p = coh_sub.add_parser("suggest", help="Analyze failures and suggest new questions")
+    p.add_argument("--lookback-days", type=int, default=90)
+
+    p = coh_sub.add_parser("accept", help="Accept a feedback suggestion")
+    p.add_argument("--suggestion-id", required=True)
 
 
 def _register_server_commands(sub: argparse._SubParsersAction) -> None:

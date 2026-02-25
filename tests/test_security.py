@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import json
 import os
-import socket
-import threading
 import time
 from unittest.mock import patch
 from urllib.request import Request, urlopen
@@ -114,32 +112,6 @@ class TestKeyRotation:
 # ---------------------------------------------------------------------------
 # Pydantic validation (integration via live server)
 # ---------------------------------------------------------------------------
-
-@pytest.fixture
-def live_server(db_path):
-    import uvicorn
-    from converge.api import create_app
-
-    app = create_app(db_path=str(db_path), webhook_secret="")
-
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(("127.0.0.1", 0))
-        port = s.getsockname()[1]
-
-    config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="error")
-    server = uvicorn.Server(config)
-    thread = threading.Thread(target=server.run, daemon=True)
-    thread.start()
-
-    deadline = time.time() + 10
-    while not server.started and time.time() < deadline:
-        time.sleep(0.05)
-
-    yield f"http://127.0.0.1:{port}"
-
-    server.should_exit = True
-    thread.join(timeout=5)
-
 
 @pytest.mark.integration
 class TestPydanticValidation:

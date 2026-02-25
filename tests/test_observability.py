@@ -128,7 +128,6 @@ class TestMetrics:
 class TestTracing:
     def test_get_tracer_returns_none_without_setup(self):
         from converge.observability import get_tracer
-        # Without calling setup_tracing, tracer may be None
+        # Without calling setup_tracing, tracer should be None
         tracer = get_tracer()
-        # Just verify it doesn't crash
-        assert tracer is None or tracer is not None
+        assert tracer is None

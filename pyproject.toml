@@ -20,6 +20,8 @@ postgres = [
     "psycopg[binary]>=3.1.0",
     "psycopg_pool>=3.2.0",
 ]
+semantic = ["sentence-transformers>=2.2.0"]
+llm = ["anthropic>=0.20.0", "openai>=1.10.0"]
 
 [project.scripts]
 converge = "converge.cli:main"
@@ -32,4 +34,7 @@ testpaths = ["tests"]
 pythonpath = ["src", "."]
 markers = [
     "integration: tests that require real network sockets (HTTP server)",
+]
+filterwarnings = [
+    "ignore:coroutine 'AsyncMockMixin._execute_mock_call' was never awaited:RuntimeWarning",
 ]

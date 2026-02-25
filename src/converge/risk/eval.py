@@ -38,12 +38,30 @@ _DIAG_PATH_DEP = 40
 _FINDING_LARGE_CHANGE = 15
 _FINDING_DEP_SPREAD = 3
 
+from converge.defaults import RISK_CLASSIFICATION_THRESHOLDS
+from converge.models import RiskLevel
+
 from converge.risk.signals import (
     compute_complexity_delta,
     compute_contextual_value,
     compute_entropic_load,
     compute_path_dependence,
 )
+
+
+def classify_risk_level(
+    risk_score: float,
+    thresholds: dict[str, float] | None = None,
+) -> RiskLevel:
+    """Classify risk level from composite score."""
+    t = thresholds or RISK_CLASSIFICATION_THRESHOLDS
+    if risk_score >= t["critical"]:
+        return RiskLevel.CRITICAL
+    if risk_score >= t["high"]:
+        return RiskLevel.HIGH
+    if risk_score >= t["medium"]:
+        return RiskLevel.MEDIUM
+    return RiskLevel.LOW
 
 
 def analyze_findings(intent: Intent, simulation: Simulation) -> list[dict[str, Any]]:

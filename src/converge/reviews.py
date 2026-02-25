@@ -95,6 +95,45 @@ def request_review(
             payload={"task_id": task_id, "reviewer": reviewer},
         ))
 
+    # Initiative 4: LLM review advisor
+    from converge.feature_flags import get_mode, is_enabled
+    if is_enabled("llm_review_advisor"):
+        from converge.llm.registry import check_rate_limit, get_adapter, record_call
+
+        adapter = get_adapter()
+        if adapter.is_available() and check_rate_limit():
+            try:
+                risk_events = event_log.query(
+                    event_type=EventType.RISK_EVALUATED, intent_id=intent_id, limit=1,
+                )
+                risk_data = risk_events[0].get("payload", {}) if risk_events else {}
+                analysis = adapter.analyze_review(intent.to_dict(), "", risk_data)
+                record_call()
+                event_log.append(Event(
+                    event_type=EventType.REVIEW_ANALYSIS_GENERATED,
+                    intent_id=intent_id,
+                    tenant_id=task.tenant_id,
+                    payload={
+                        "summary": analysis.summary,
+                        "risk_highlights": analysis.risk_highlights,
+                        "suggested_focus_areas": analysis.suggested_focus_areas,
+                        "confidence": analysis.confidence,
+                        "provider": adapter.provider_name,
+                        "mode": get_mode("llm_review_advisor"),
+                    },
+                ))
+            except Exception as exc:
+                event_log.append(Event(
+                    event_type=EventType.REVIEW_ANALYSIS_FAILED,
+                    intent_id=intent_id,
+                    tenant_id=task.tenant_id,
+                    payload={"error": str(exc), "provider": adapter.provider_name},
+                ))
+
+    # Initiative 6: Notification
+    from converge.notifications.dispatcher import notify
+    notify("review.requested", task.to_dict())
+
     return task
 
 
@@ -135,6 +174,11 @@ def assign_review(
     task.reviewer = reviewer
     task.assigned_at = assigned_at
     task.status = new_status
+
+    # Initiative 6: Notification
+    from converge.notifications.dispatcher import notify
+    notify("review.assigned", {"task_id": task_id, "reviewer": reviewer})
+
     return task
 
 
@@ -175,6 +219,11 @@ def complete_review(
     task.completed_at = completed_at
     task.resolution = resolution
     task.notes = notes
+
+    # Initiative 6: Notification
+    from converge.notifications.dispatcher import notify
+    notify("review.completed", {"task_id": task_id, "resolution": resolution, "reviewer": task.reviewer})
+
     return task
 
 
@@ -242,6 +291,11 @@ def escalate_review(
 
     task.status = ReviewStatus.ESCALATED
     task.escalated_at = escalated_at
+
+    # Initiative 6: Notification
+    from converge.notifications.dispatcher import notify
+    notify("review.escalated", {"task_id": task_id, "reviewer": task.reviewer, "reason": reason})
+
     return task
 
 
@@ -284,6 +338,10 @@ def check_sla_breaches(
                     tenant_id=task.tenant_id,
                     payload=breach,
                 ))
+
+                # Initiative 6: Notification
+                from converge.notifications.dispatcher import notify
+                notify("review.sla_breached", breach)
 
     return breaches
 

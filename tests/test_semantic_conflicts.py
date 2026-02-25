@@ -1,9 +1,10 @@
 """Tests for semantic conflict detection (AR-18..AR-21).
 
-Note: the deterministic embedding provider hashes the full canonical text
-(including intent ID), so two intents with identical semantic content still
-produce different vectors. Tests that need high similarity inject identical
-vectors directly via upsert_embedding.
+The indexer now uses build_semantic_text() (which excludes intent ID and plan ID)
+for embedding generation.  Two intents with identical semantic content will produce
+identical vectors via the deterministic provider — no manual vector injection needed.
+
+Legacy tests that inject vectors directly via upsert_embedding still work.
 """
 
 import json
@@ -472,3 +473,76 @@ class TestConflictRoundTrip:
         assert len(events) >= 1
         evidence = events[0].get("evidence", {})
         assert evidence["conflict_threshold"] == 0.4
+
+
+# ===================================================================
+# E2E: semantic text fix — indexer produces comparable embeddings
+# ===================================================================
+
+class TestSemanticTextFix:
+    def test_same_semantic_different_id_produces_same_embedding(self, db_path):
+        """Two intents with different IDs but same semantic content produce identical embeddings."""
+        common = dict(
+            source="feature/login", target="main",
+            risk_level=RiskLevel.HIGH, priority=1,
+            semantic={"objective": "Add auth", "problem_statement": "Need login"},
+            technical={"scope_hint": ["auth"]},
+        )
+        make_intent("fix-001", plan_id="plan-A", **common)
+        make_intent("fix-002", plan_id="plan-B", **common)
+
+        provider = get_provider("deterministic")
+        _index("fix-001", provider)
+        _index("fix-002", provider)
+
+        emb1 = event_log.get_embedding("fix-001", "deterministic-v1")
+        emb2 = event_log.get_embedding("fix-002", "deterministic-v1")
+        assert emb1 is not None
+        assert emb2 is not None
+
+        v1 = json.loads(emb1["vector"])
+        v2 = json.loads(emb2["vector"])
+        sim = _cosine_similarity(v1, v2)
+        assert abs(sim - 1.0) < 1e-6, f"Expected cosine similarity ~1.0, got {sim}"
+
+    def test_scan_detects_duplicate_intents_via_indexer(self, db_path):
+        """E2E: create intents with same semantic content, index them, scan detects conflict."""
+        common = dict(
+            source="feature/auth", target="main",
+            risk_level=RiskLevel.MEDIUM, priority=1,
+            semantic={"objective": "Implement SSO", "problem_statement": "Need single sign-on"},
+            technical={"scope_hint": ["auth", "sso"]},
+        )
+        make_intent("e2e-001", plan_id="plan-X", **common)
+        make_intent("e2e-002", plan_id="plan-Y", **common)
+
+        provider = get_provider("deterministic")
+        _index("e2e-001", provider)
+        _index("e2e-002", provider)
+
+        report = scan_conflicts(
+            conflict_threshold=0.5, similarity_threshold=0.5,
+        )
+        pair_ids = {tuple(sorted((c.intent_a, c.intent_b))) for c in report.conflicts}
+        assert ("e2e-001", "e2e-002") in pair_ids, (
+            f"Expected conflict between e2e-001 and e2e-002, got: {pair_ids}"
+        )
+
+
+class TestThresholdCalibration:
+    """Auto-threshold selection based on model type."""
+
+    def test_deterministic_model_uses_high_threshold(self, db_path):
+        """Deterministic model auto-selects 0.95 similarity threshold."""
+        from converge.semantic.conflicts import _effective_similarity_threshold
+        assert _effective_similarity_threshold("deterministic-v1", None) == 0.95
+
+    def test_semantic_model_uses_default_threshold(self, db_path):
+        """Non-deterministic model uses 0.70 default."""
+        from converge.semantic.conflicts import _effective_similarity_threshold
+        assert _effective_similarity_threshold("sentence-transformers", None) == 0.70
+
+    def test_explicit_threshold_overrides(self, db_path):
+        """Explicit threshold always wins over auto-selection."""
+        from converge.semantic.conflicts import _effective_similarity_threshold
+        assert _effective_similarity_threshold("deterministic-v1", 0.50) == 0.50

@@ -6,7 +6,7 @@ from conftest import make_intent
 
 from converge import event_log
 from converge.models import EventType, Intent, RiskLevel, Status
-from converge.semantic.canonical import build_canonical_text, canonical_checksum
+from converge.semantic.canonical import build_canonical_text, build_semantic_text, canonical_checksum
 from converge.semantic.embeddings import (
     DeterministicProvider,
     EmbeddingProvider,
@@ -112,6 +112,70 @@ class TestCanonicalText:
         )
         text = build_canonical_text(intent)
         assert "scope:api" in text
+        assert "scope:core" in text
+
+
+# ===================================================================
+# Semantic text builder (excludes identity for embedding comparability)
+# ===================================================================
+
+class TestSemanticText:
+    def test_semantic_text_excludes_id(self):
+        """Semantic text must not contain intent ID."""
+        intent = Intent(
+            id="st-001", source="feature/a", target="main",
+            status=Status.READY, risk_level=RiskLevel.HIGH,
+            semantic={"objective": "Test"},
+        )
+        text = build_semantic_text(intent)
+        assert "intent:" not in text
+        assert "st-001" not in text
+
+    def test_semantic_text_excludes_plan_id(self):
+        """Semantic text must not contain plan ID."""
+        intent = Intent(
+            id="st-002", source="feature/a", target="main",
+            status=Status.READY, plan_id="plan-99",
+            semantic={"objective": "Test"},
+        )
+        text = build_semantic_text(intent)
+        assert "plan:" not in text
+        assert "plan-99" not in text
+
+    def test_semantic_text_identical_for_same_content(self):
+        """Two intents with different IDs but same semantic content produce identical text."""
+        common = dict(
+            source="feature/login", target="main",
+            status=Status.READY, risk_level=RiskLevel.HIGH,
+            semantic={"objective": "Add auth", "problem_statement": "Need login"},
+            technical={"scope_hint": ["auth"]},
+            dependencies=["dep-1"],
+        )
+        i1 = Intent(id="st-A", plan_id="plan-1", **common)
+        i2 = Intent(id="st-B", plan_id="plan-2", **common)
+        assert build_semantic_text(i1) == build_semantic_text(i2)
+
+    def test_semantic_text_deterministic(self):
+        """Same intent produces same semantic text on repeated calls."""
+        intent = Intent(
+            id="st-003", source="feature/x", target="main",
+            status=Status.READY, semantic={"objective": "Repeat"},
+        )
+        assert build_semantic_text(intent) == build_semantic_text(intent)
+
+    def test_semantic_text_includes_content_fields(self):
+        """Semantic text includes source, target, risk, semantic metadata, scope."""
+        intent = Intent(
+            id="st-004", source="feature/x", target="main",
+            status=Status.READY, risk_level=RiskLevel.MEDIUM,
+            semantic={"objective": "Test"},
+            technical={"scope_hint": ["core"]},
+        )
+        text = build_semantic_text(intent)
+        assert "source:feature/x" in text
+        assert "target:main" in text
+        assert "risk:medium" in text
+        assert "semantic.objective:Test" in text
         assert "scope:core" in text
 
 

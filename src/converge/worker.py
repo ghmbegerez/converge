@@ -79,10 +79,15 @@ class QueueWorker:
         self._draining = False
         self._cycles = 0
         self._total_processed = 0
+        self._heartbeat_interval_cycles = int(
+            os.environ.get("CONVERGE_WORKER_HEARTBEAT_CYCLES", "10"),
+        )
+        self._start_time: float | None = None
 
     def start(self) -> None:
         """Start the worker loop (blocking). Installs signal handlers."""
         self._running = True
+        self._start_time = time.time()
         self._install_signal_handlers()
 
         log.info(
@@ -166,7 +171,40 @@ class QueueWorker:
             if self.config.github_enabled:
                 self._publish_results(results)
 
+            # Initiative 6: Notification dispatch
+            from converge.notifications.dispatcher import notify
+
+            for result in results:
+                decision = result.get("decision", "")
+                intent_id = result.get("intent_id", "")
+                if decision in ("validated", "merged", "rejected") and intent_id:
+                    notify(f"intent.{decision}", {
+                        "intent_id": intent_id,
+                        "decision": decision,
+                        "trace_id": result.get("trace_id", ""),
+                    })
+
+        self._maybe_emit_heartbeat()
         return results
+
+    def _maybe_emit_heartbeat(self) -> None:
+        """Emit a heartbeat event if the cycle interval has been reached."""
+        if self._heartbeat_interval_cycles <= 0:
+            return
+        if self._cycles % self._heartbeat_interval_cycles != 0:
+            return
+
+        uptime = time.time() - (self._start_time or time.time())
+        event_log.append(Event(
+            event_type=EventType.WORKER_HEARTBEAT,
+            payload={
+                "cycle": self._cycles,
+                "total_processed": self._total_processed,
+                "queue_depth": len(event_log.list_intents(status="VALIDATED", limit=1000)),
+                "uptime_seconds": round(uptime, 1),
+                "pid": os.getpid(),
+            },
+        ))
 
     def _publish_results(self, results: list[dict[str, Any]]) -> None:
         """Publish decisions to GitHub (runs async in a one-shot event loop)."""

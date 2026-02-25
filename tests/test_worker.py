@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import os
 import signal
-import socket
 import threading
 import time
 from unittest.mock import patch, MagicMock
@@ -139,38 +138,86 @@ class TestWorkerLifecycle:
 
 
 # ---------------------------------------------------------------------------
-# Webhook sync tests (integration via live server)
+# Heartbeat tests
 # ---------------------------------------------------------------------------
 
-@pytest.fixture
-def live_server(db_path):
-    import uvicorn
-    from converge.api import create_app
+class TestWorkerHeartbeat:
+    def test_worker_emits_heartbeat(self, db_path):
+        """Worker emits WORKER_HEARTBEAT events at configured interval."""
+        config = WorkerConfig()
+        config.poll_interval = 1
 
-    with patch.dict(os.environ, {
-        "CONVERGE_AUTH_REQUIRED": "0",
-        "CONVERGE_RATE_LIMIT_ENABLED": "0",
-    }):
-        app = create_app(db_path=str(db_path), webhook_secret="")
+        worker = QueueWorker(config)
+        # Set heartbeat every 1 cycle for testing
+        worker._heartbeat_interval_cycles = 1
 
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.bind(("127.0.0.1", 0))
-            port = s.getsockname()[1]
+        def run():
+            worker.start()
 
-        config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="error")
-        server = uvicorn.Server(config)
-        thread = threading.Thread(target=server.run, daemon=True)
+        thread = threading.Thread(target=run, daemon=True)
         thread.start()
-
-        deadline = time.time() + 10
-        while not server.started and time.time() < deadline:
-            time.sleep(0.05)
-
-        yield f"http://127.0.0.1:{port}"
-
-        server.should_exit = True
+        time.sleep(0.5)
+        worker.stop()
         thread.join(timeout=5)
 
+        heartbeats = event_log.query(event_type=EventType.WORKER_HEARTBEAT)
+        assert len(heartbeats) >= 1
+
+    def test_heartbeat_contains_fields(self, db_path):
+        """Heartbeat payload has cycle, total_processed, queue_depth, uptime_seconds, pid."""
+        config = WorkerConfig()
+        config.poll_interval = 1
+
+        worker = QueueWorker(config)
+        worker._heartbeat_interval_cycles = 1
+
+        def run():
+            worker.start()
+
+        thread = threading.Thread(target=run, daemon=True)
+        thread.start()
+        time.sleep(0.5)
+        worker.stop()
+        thread.join(timeout=5)
+
+        heartbeats = event_log.query(event_type=EventType.WORKER_HEARTBEAT)
+        assert len(heartbeats) >= 1
+        payload = heartbeats[0]["payload"]
+        assert "cycle" in payload
+        assert "total_processed" in payload
+        assert "queue_depth" in payload
+        assert "uptime_seconds" in payload
+        assert "pid" in payload
+        assert payload["pid"] == os.getpid()
+
+    def test_heartbeat_uptime_increases(self, db_path):
+        """Uptime in later heartbeats is greater or equal."""
+        config = WorkerConfig()
+        config.poll_interval = 1
+
+        worker = QueueWorker(config)
+        worker._heartbeat_interval_cycles = 1
+
+        def run():
+            worker.start()
+
+        thread = threading.Thread(target=run, daemon=True)
+        thread.start()
+        time.sleep(1.5)  # Wait for at least 2 cycles
+        worker.stop()
+        thread.join(timeout=5)
+
+        heartbeats = event_log.query(event_type=EventType.WORKER_HEARTBEAT)
+        if len(heartbeats) >= 2:
+            # Most recent first (query returns DESC)
+            uptime_latest = heartbeats[0]["payload"]["uptime_seconds"]
+            uptime_earliest = heartbeats[-1]["payload"]["uptime_seconds"]
+            assert uptime_latest >= uptime_earliest
+
+
+# ---------------------------------------------------------------------------
+# Webhook sync tests (integration via live server)
+# ---------------------------------------------------------------------------
 
 @pytest.mark.integration
 class TestWebhookSync:

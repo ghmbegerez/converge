@@ -18,9 +18,13 @@ import math
 from dataclasses import dataclass, field
 from typing import Any
 
+import logging
+
 from converge import event_log
 from converge.defaults import QUERY_LIMIT_LARGE
 from converge.models import Event, EventType, Intent, Status, now_iso
+
+log = logging.getLogger("converge.semantic.conflicts")
 
 
 # ---------------------------------------------------------------------------
@@ -28,8 +32,16 @@ from converge.models import Event, EventType, Intent, Status, now_iso
 # ---------------------------------------------------------------------------
 
 _ACTIVE_STATUSES = frozenset({Status.READY.value, Status.VALIDATED.value, Status.QUEUED.value})
+
+# Thresholds are calibrated per provider type:
+# - Deterministic (hash-based): identical text → cosine ~1.0, different text → cosine ~0.0.
+#   Use high thresholds since the provider only detects exact-duplicate semantic text.
+# - Semantic (ML-based): similar meaning → cosine 0.6-0.9.
+#   Lower thresholds catch related intents even with different wording.
 _DEFAULT_SIMILARITY_THRESHOLD = 0.70
 _DEFAULT_CONFLICT_THRESHOLD = 0.60
+_DETERMINISTIC_SIMILARITY_THRESHOLD = 0.95
+_DETERMINISTIC_CONFLICT_THRESHOLD = 0.80
 
 
 # ---------------------------------------------------------------------------
@@ -73,15 +85,28 @@ class ConflictReport:
 # ---------------------------------------------------------------------------
 
 def _cosine_similarity(a: list[float], b: list[float]) -> float:
-    """Compute cosine similarity between two vectors."""
+    """Compute cosine similarity between two vectors.
+
+    Uses numpy when available for faster computation on large vectors;
+    falls back to pure-Python implementation otherwise.
+    """
     if len(a) != len(b) or not a:
         return 0.0
-    dot = sum(x * y for x, y in zip(a, b))
-    norm_a = math.sqrt(sum(x * x for x in a))
-    norm_b = math.sqrt(sum(x * x for x in b))
-    if norm_a == 0 or norm_b == 0:
-        return 0.0
-    return dot / (norm_a * norm_b)
+    try:
+        import numpy as np
+
+        va, vb = np.array(a), np.array(b)
+        dot = np.dot(va, vb)
+        norm = np.linalg.norm(va) * np.linalg.norm(vb)
+        return float(dot / norm) if norm > 0 else 0.0
+    except ImportError:
+        # Pure Python fallback
+        dot = sum(x * y for x, y in zip(a, b))
+        norm_a = math.sqrt(sum(x * x for x in a))
+        norm_b = math.sqrt(sum(x * x for x in b))
+        if norm_a == 0 or norm_b == 0:
+            return 0.0
+        return dot / (norm_a * norm_b)
 
 
 # ---------------------------------------------------------------------------
@@ -121,18 +146,33 @@ def _load_embedding_vectors(
     return vectors
 
 
+def _effective_similarity_threshold(model: str, explicit: float | None) -> float:
+    """Return the effective similarity threshold for the given model."""
+    if explicit is not None:
+        return explicit
+    if model.startswith("deterministic"):
+        return _DETERMINISTIC_SIMILARITY_THRESHOLD
+    return _DEFAULT_SIMILARITY_THRESHOLD
+
+
 def generate_candidates(
     *,
     model: str = "deterministic-v1",
     tenant_id: str | None = None,
     target: str | None = None,
-    similarity_threshold: float = _DEFAULT_SIMILARITY_THRESHOLD,
+    similarity_threshold: float | None = None,
 ) -> list[ConflictCandidate]:
     """Find pairs of intents with high semantic similarity across different plans.
 
     Intents sharing the same plan_id are excluded from comparison (intra-plan
     coherence is the generator's responsibility).
+
+    When *similarity_threshold* is ``None`` (the default), the threshold is
+    auto-selected based on the provider: 0.95 for hash-based deterministic
+    vectors (which are either ~1.0 or ~0.0) and 0.70 for ML-based embeddings.
     """
+    effective_threshold = _effective_similarity_threshold(model, similarity_threshold)
+
     intents = _load_active_intents(tenant_id=tenant_id, target=target)
     if len(intents) < 2:
         return []
@@ -165,10 +205,12 @@ def generate_candidates(
                 va = vectors.get(a.id)
                 vb = vectors.get(b.id)
                 if va is None or vb is None:
+                    missing = [x for x, v in ((a.id, va), (b.id, vb)) if v is None]
+                    log.warning("Missing embedding for %s — skipping conflict check", missing)
                     continue
 
                 sim = _cosine_similarity(va, vb)
-                if sim >= similarity_threshold:
+                if sim >= effective_threshold:
                     candidates.append(ConflictCandidate(
                         intent_a=a.id,
                         intent_b=b.id,
@@ -253,8 +295,8 @@ def scan_conflicts(
     model: str = "deterministic-v1",
     tenant_id: str | None = None,
     target: str | None = None,
-    similarity_threshold: float = _DEFAULT_SIMILARITY_THRESHOLD,
-    conflict_threshold: float = _DEFAULT_CONFLICT_THRESHOLD,
+    similarity_threshold: float | None = None,
+    conflict_threshold: float | None = None,
     mode: str = "shadow",
 ) -> ConflictReport:
     """Run full conflict scan: generate candidates, score, emit events.
@@ -263,6 +305,13 @@ def scan_conflicts(
       - shadow: detect and log conflicts, do not block
       - enforce: detect, log, and mark as actionable (could gate queue processing)
     """
+    effective_conflict = conflict_threshold
+    if effective_conflict is None:
+        if model.startswith("deterministic"):
+            effective_conflict = _DETERMINISTIC_CONFLICT_THRESHOLD
+        else:
+            effective_conflict = _DEFAULT_CONFLICT_THRESHOLD
+
     candidates = generate_candidates(
         model=model,
         tenant_id=tenant_id,
@@ -278,7 +327,7 @@ def scan_conflicts(
             continue
 
         cs = score_conflict(cand, intent_a, intent_b)
-        if cs.score >= conflict_threshold:
+        if cs.score >= effective_conflict:
             scored.append(cs)
 
             # Emit conflict event
@@ -307,7 +356,7 @@ def scan_conflicts(
         conflicts=scored,
         candidates_checked=len(candidates),
         mode=mode,
-        threshold=conflict_threshold,
+        threshold=effective_conflict,
     )
 
 

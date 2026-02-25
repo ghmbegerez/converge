@@ -27,6 +27,7 @@ from converge.cli._helpers import _out  # noqa: F401 — re-exported for tests
 from converge.cli._parser import build_parser
 from converge.cli.admin import (
     cmd_agent_authorize,
+    cmd_doctor,
     cmd_agent_policy_get,
     cmd_agent_policy_list,
     cmd_agent_policy_set,
@@ -35,6 +36,12 @@ from converge.cli.admin import (
     cmd_audit_init_chain,
     cmd_audit_prune,
     cmd_audit_verify_chain,
+    cmd_coherence_accept,
+    cmd_coherence_baseline,
+    cmd_coherence_init,
+    cmd_coherence_list,
+    cmd_coherence_run,
+    cmd_coherence_suggest,
     cmd_compliance_alerts,
     cmd_compliance_report,
     cmd_compliance_threshold_get,
@@ -164,8 +171,15 @@ _DISPATCH = {
     ("security", "scan"): cmd_security_scan,
     ("security", "findings"): cmd_security_findings,
     ("security", "summary"): cmd_security_summary,
+    ("coherence", "init"): cmd_coherence_init,
+    ("coherence", "list"): cmd_coherence_list,
+    ("coherence", "run"): cmd_coherence_run,
+    ("coherence", "baseline"): cmd_coherence_baseline,
+    ("coherence", "suggest"): cmd_coherence_suggest,
+    ("coherence", "accept"): cmd_coherence_accept,
     ("serve", None): cmd_serve,
     ("worker", None): cmd_worker,
+    ("doctor", None): cmd_doctor,
 }
 
 # Map subcmd attr names to the dispatch key
@@ -186,6 +200,7 @@ _SUBCMD_ATTR = {
     "harness": "harness_cmd",
     "export": "export_cmd",
     "semantic": "semantic_cmd",
+    "coherence": "coherence_cmd",
 }
 
 

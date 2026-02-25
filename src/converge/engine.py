@@ -17,6 +17,7 @@ from typing import Any
 
 from converge.models import (
     CheckResult,
+    CoherenceEvaluation,
     Event,
     EventType,
     Intent,
@@ -27,7 +28,7 @@ from converge.models import (
     Simulation,
     Status,
 )
-from converge import analytics, event_log, policy, risk, scm
+from converge import analytics, coherence, event_log, policy, reviews, risk, scm
 from converge.defaults import CHECK_OUTPUT_LIMIT, CHECK_TIMEOUT_SECONDS, CONFLICT_DISPLAY_LIMIT, DEFAULT_TARGET_BRANCH
 from converge.event_payloads import (
     BlockPayload,
@@ -180,7 +181,14 @@ def validate_intent(
 
     risk_eval = _evaluate_risk_step(intent, sim, cwd, trace_id)
 
-    policy_eval, blocked = _evaluate_policy_step(intent, checks_passed, risk_eval, cfg, sim, trace_id)
+    coherence_eval, blocked = _evaluate_coherence_step(intent, risk_eval, cwd, trace_id)
+    if blocked:
+        return blocked
+
+    policy_eval, blocked = _evaluate_policy_step(
+        intent, checks_passed, risk_eval, cfg, sim, trace_id,
+        coherence_eval=coherence_eval,
+    )
     if blocked:
         return blocked
 
@@ -188,7 +196,8 @@ def validate_intent(
     if blocked:
         return blocked
 
-    return _finalize_validation(intent, sim, risk_eval, policy_eval, risk_gate, trace_id)
+    return _finalize_validation(intent, sim, risk_eval, policy_eval, risk_gate, trace_id,
+                                coherence_eval=coherence_eval)
 
 
 def _resolve_simulation(
@@ -269,7 +278,117 @@ def _evaluate_risk_step(
             "trace_id": trace_id,
         },
     ))
+
+    # Initiative 2: Auto-reclassify risk level from scores
+    from converge.feature_flags import is_enabled
+    if is_enabled("risk_auto_classify"):
+        from converge.risk.eval import classify_risk_level
+
+        new_level = classify_risk_level(risk_eval.risk_score)
+        if new_level != intent.risk_level:
+            old_level = intent.risk_level
+            intent.risk_level = new_level
+            event_log.update_intent_status(intent.id, intent.status)
+            event_log.append(Event(
+                event_type=EventType.RISK_LEVEL_RECLASSIFIED,
+                intent_id=intent.id,
+                trace_id=trace_id,
+                tenant_id=intent.tenant_id,
+                payload={
+                    "old": old_level.value,
+                    "new": new_level.value,
+                    "risk_score": risk_eval.risk_score,
+                },
+            ))
+
     return risk_eval
+
+
+def _evaluate_coherence_step(
+    intent: Intent,
+    risk_eval: RiskEval,
+    cwd: str | Path | None,
+    trace_id: str,
+) -> tuple[CoherenceEvaluation | None, dict[str, Any] | None]:
+    """Step 3.5: Evaluate coherence questions against the working tree."""
+    questions = coherence.load_questions()
+    if not questions:
+        # No coherence harness configured — pass automatically (backward compatible)
+        return CoherenceEvaluation(
+            coherence_score=100.0, verdict="pass", results=[],
+            harness_version="none",
+        ), None
+
+    coherence_eval = coherence.evaluate(questions, workdir=cwd)
+
+    # Cross-check vs risk (consistency validation)
+    coherence_eval.inconsistencies = coherence.check_consistency(coherence_eval, risk_eval)
+
+    # Apply inconsistency adjustments
+    if coherence_eval.inconsistencies:
+        # If in warn zone and has inconsistencies → downgrade to fail
+        if coherence_eval.verdict == "warn":
+            coherence_eval = CoherenceEvaluation(
+                coherence_score=coherence_eval.coherence_score,
+                verdict="fail",
+                results=coherence_eval.results,
+                harness_version=coherence_eval.harness_version,
+                inconsistencies=coherence_eval.inconsistencies,
+            )
+        # If passed but has inconsistencies → downgrade to warn
+        elif coherence_eval.verdict == "pass":
+            coherence_eval = CoherenceEvaluation(
+                coherence_score=coherence_eval.coherence_score,
+                verdict="warn",
+                results=coherence_eval.results,
+                harness_version=coherence_eval.harness_version,
+                inconsistencies=coherence_eval.inconsistencies,
+            )
+
+        # Emit inconsistency event
+        event_log.append(Event(
+            event_type=EventType.COHERENCE_INCONSISTENCY,
+            trace_id=trace_id,
+            intent_id=intent.id,
+            tenant_id=intent.tenant_id,
+            payload={
+                "inconsistencies": coherence_eval.inconsistencies,
+                "coherence_score": coherence_eval.coherence_score,
+                "risk_score": risk_eval.risk_score,
+            },
+        ))
+
+    # Emit coherence evaluated event
+    event_log.append(Event(
+        event_type=EventType.COHERENCE_EVALUATED,
+        trace_id=trace_id,
+        intent_id=intent.id,
+        tenant_id=intent.tenant_id,
+        payload={
+            "coherence_score": coherence_eval.coherence_score,
+            "verdict": coherence_eval.verdict,
+            "harness_version": coherence_eval.harness_version,
+            "results_count": len(coherence_eval.results),
+            "inconsistencies": coherence_eval.inconsistencies,
+        },
+    ))
+
+    # Auto-create review if warn or inconsistencies
+    if coherence_eval.verdict == "warn" or coherence_eval.inconsistencies:
+        try:
+            reviews.request_review(intent.id, trigger="coherence")
+        except (ValueError, Exception):
+            pass  # Intent may not be persisted yet in some flows
+
+    if coherence_eval.verdict == "fail":
+        return None, _block(
+            intent,
+            f"Coherence score {coherence_eval.coherence_score:.1f} below threshold",
+            risk_eval=risk_eval,
+            trace_id=trace_id,
+        )
+
+    return coherence_eval, None
 
 
 def _evaluate_policy_step(
@@ -279,13 +398,16 @@ def _evaluate_policy_step(
     cfg: policy.PolicyConfig,
     sim: Simulation,
     trace_id: str,
+    coherence_eval: CoherenceEvaluation | None = None,
 ) -> tuple[PolicyEvaluation | None, dict[str, Any] | None]:
-    """Step 4: Evaluate 3 policy gates."""
+    """Step 4: Evaluate policy gates (verification, containment, entropy, security, coherence)."""
+    coherence_score = coherence_eval.coherence_score if coherence_eval else None
     policy_eval = policy.evaluate(
         risk_level=intent.risk_level,
         checks_passed=checks_passed,
         entropy_delta=risk_eval.entropy_score,
         containment_score=risk_eval.containment_score,
+        coherence_score=coherence_score,
         config=cfg,
         origin_type=intent.origin_type,
     )
@@ -344,6 +466,7 @@ def _finalize_validation(
     policy_eval: PolicyEvaluation,
     risk_gate: dict[str, Any],
     trace_id: str,
+    coherence_eval: CoherenceEvaluation | None = None,
 ) -> dict[str, Any]:
     """Step 6: Mark VALIDATED, record event, build response."""
     event_log.update_intent_status(intent.id, Status.VALIDATED)
@@ -356,7 +479,7 @@ def _finalize_validation(
         evidence={"risk_score": risk_eval.risk_score, "policy_verdict": "ALLOW", "trace_id": trace_id},
     ))
 
-    return {
+    result: dict[str, Any] = {
         "decision": "validated",
         "intent_id": intent.id,
         "trace_id": trace_id,
@@ -365,6 +488,9 @@ def _finalize_validation(
         "policy": {"verdict": "ALLOW", "gates": [{"gate": g.gate.value, "passed": g.passed} for g in policy_eval.gates]},
         "risk_gate": risk_gate,
     }
+    if coherence_eval:
+        result["coherence"] = coherence_eval.to_dict()
+    return result
 
 
 def _block(
@@ -504,6 +630,30 @@ def _process_single_intent(
     if intent.retries >= opts.max_retries:
         return _reject_max_retries(intent, opts.max_retries)
 
+    # Check for pending reviews before processing
+    pending_reviews = event_log.list_review_tasks(
+        intent_id=intent.id, status="pending",
+    )
+    assigned_reviews = event_log.list_review_tasks(
+        intent_id=intent.id, status="assigned",
+    )
+    if pending_reviews or assigned_reviews:
+        review_count = len(pending_reviews) + len(assigned_reviews)
+        return {
+            "decision": "review_pending",
+            "intent_id": intent.id,
+            "pending_reviews": review_count,
+            "reason": f"{review_count} review(s) still pending",
+        }
+
+    # Check for rejected reviews → block the intent
+    completed_reviews = event_log.list_review_tasks(
+        intent_id=intent.id, status="completed",
+    )
+    rejected = [t for t in completed_reviews if t.resolution == "rejected"]
+    if rejected:
+        return _block(intent, "Review rejected", trace_id=event_log.fresh_trace_id())
+
     # Invariant 2: revalidate against current M(t)
     decision = validate_intent(
         intent,
@@ -575,7 +725,7 @@ def _execute_merge(
     On failure: increment retries, set READY or REJECTED, emit INTENT_MERGE_FAILED.
     """
     try:
-        sha = scm.execute_merge(intent.source, intent.target, cwd=cwd)
+        sha = scm.execute_merge_safe(intent.source, intent.target, cwd=cwd)
     except Exception as e:
         new_retries = intent.retries + 1
         new_status = Status.REJECTED if new_retries >= max_retries else Status.READY

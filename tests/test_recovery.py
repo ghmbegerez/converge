@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import os
-import socket
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -17,41 +16,6 @@ import pytest
 from converge import event_log
 from converge.adapters.sqlite_store import SqliteStore
 from converge.models import Event, EventType, Intent, Status
-
-
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
-
-@pytest.fixture
-def recovery_server(db_path):
-    """Server with auth/rate-limit off for recovery tests."""
-    import uvicorn
-    from converge.api import create_app
-
-    with patch.dict(os.environ, {
-        "CONVERGE_AUTH_REQUIRED": "0",
-        "CONVERGE_RATE_LIMIT_ENABLED": "0",
-    }):
-        app = create_app(db_path=str(db_path), webhook_secret="")
-
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.bind(("127.0.0.1", 0))
-            port = s.getsockname()[1]
-
-        config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="error")
-        server = uvicorn.Server(config)
-        thread = threading.Thread(target=server.run, daemon=True)
-        thread.start()
-
-        deadline = time.time() + 10
-        while not server.started and time.time() < deadline:
-            time.sleep(0.05)
-
-        yield f"http://127.0.0.1:{port}"
-
-        server.should_exit = True
-        thread.join(timeout=5)
 
 
 def _webhook(url: str, event: str, payload: dict, delivery_id: str) -> int:
@@ -79,10 +43,10 @@ def _webhook(url: str, event: str, payload: dict, delivery_id: str) -> int:
 @pytest.mark.integration
 class TestWebhookBurst:
 
-    def test_100_plus_concurrent_webhooks(self, db_path, recovery_server):
+    def test_100_plus_concurrent_webhooks(self, db_path, live_server):
         """100+ simultaneous webhook POSTs — zero 5xx errors."""
         n = 120
-        url = f"{recovery_server}/integrations/github/webhook"
+        url = f"{live_server}/integrations/github/webhook"
         errors_5xx = 0
         successes = 0
 
@@ -101,10 +65,10 @@ class TestWebhookBurst:
         assert errors_5xx == 0, f"{errors_5xx} server errors in webhook burst"
         assert successes == n, f"Only {successes}/{n} webhooks succeeded"
 
-    def test_webhook_burst_creates_intents(self, recovery_server, db_path):
+    def test_webhook_burst_creates_intents(self, live_server, db_path):
         """50 concurrent PR opened webhooks each create an intent."""
         n = 50
-        url = f"{recovery_server}/integrations/github/webhook"
+        url = f"{live_server}/integrations/github/webhook"
 
         def send_pr(i: int) -> int:
             return _webhook(
@@ -135,9 +99,9 @@ class TestWebhookBurst:
         burst_intents = [i for i in intents if i.id.startswith("burst/repo:pr-")]
         assert len(burst_intents) == n, f"Expected {n} intents, got {len(burst_intents)}"
 
-    def test_duplicate_delivery_idempotent(self, db_path, recovery_server):
+    def test_duplicate_delivery_idempotent(self, db_path, live_server):
         """Replaying the same delivery_id returns duplicate=true, not an error."""
-        url = f"{recovery_server}/integrations/github/webhook"
+        url = f"{live_server}/integrations/github/webhook"
 
         # First delivery
         status1 = _webhook(url, "ping", {"zen": "first"}, "dedup-test-1")
@@ -274,45 +238,18 @@ class TestStoreFailover:
         with pytest.raises(ValueError, match="Unknown backend"):
             create_store(backend="redis")
 
-    def test_health_ready_reports_503_on_db_failure(self, db_path):
+    def test_health_ready_reports_503_on_db_failure(self, db_path, live_server):
         """Readiness probe returns 503 when DB is inaccessible."""
-        import uvicorn
-        from converge.api import create_app
+        # Normal readiness check should be OK
+        resp = urlopen(f"{live_server}/health/ready", timeout=5)
+        assert resp.status == 200
 
-        with patch.dict(os.environ, {
-            "CONVERGE_AUTH_REQUIRED": "0",
-            "CONVERGE_RATE_LIMIT_ENABLED": "0",
-        }):
-            app = create_app(db_path=str(db_path), webhook_secret="")
-
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.bind(("127.0.0.1", 0))
-                port = s.getsockname()[1]
-
-            config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="error")
-            server = uvicorn.Server(config)
-            thread = threading.Thread(target=server.run, daemon=True)
-            thread.start()
-            deadline = time.time() + 10
-            while not server.started and time.time() < deadline:
-                time.sleep(0.05)
-
+        # Break the DB by making count() raise
+        with patch.object(event_log, "count", side_effect=RuntimeError("DB down")):
             try:
-                base = f"http://127.0.0.1:{port}"
-
-                # Normal readiness check should be OK
-                resp = urlopen(f"{base}/health/ready", timeout=5)
-                assert resp.status == 200
-
-                # Break the DB by making count() raise
-                with patch.object(event_log, "count", side_effect=RuntimeError("DB down")):
-                    try:
-                        urlopen(f"{base}/health/ready", timeout=5)
-                        assert False, "Should have raised"
-                    except HTTPError as e:
-                        assert e.code == 503
-                        body = json.loads(e.read())
-                        assert body["status"] == "unavailable"
-            finally:
-                server.should_exit = True
-                thread.join(timeout=5)
+                urlopen(f"{live_server}/health/ready", timeout=5)
+                assert False, "Should have raised"
+            except HTTPError as e:
+                assert e.code == 503
+                body = json.loads(e.read())
+                assert body["status"] == "unavailable"

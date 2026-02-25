@@ -48,6 +48,18 @@ _FLAG_DEFAULTS: dict[str, dict[str, Any]] = {
     "code_ownership": {"enabled": False, "description": "Code-area ownership SoD enforcement"},
     # Phase 9: Pre-eval harness
     "pre_eval_harness": {"enabled": True, "mode": "shadow", "description": "Pre-PR evaluation harness"},
+    # Initiative 1: Real semantic embeddings
+    "semantic_embeddings_model": {"enabled": True, "mode": "deterministic", "description": "Embedding provider: deterministic or sentence-transformers"},
+    # Initiative 2: Risk auto-classification
+    "risk_auto_classify": {"enabled": True, "mode": "enforce", "description": "Auto-reclassify risk level from scores"},
+    # Initiative 3: PostgreSQL advisory locks
+    "advisory_locks": {"enabled": False, "mode": "shadow", "description": "PostgreSQL advisory locks for queue coordination"},
+    # Initiative 4: LLM review advisor
+    "llm_review_advisor": {"enabled": False, "mode": "shadow", "description": "LLM-powered review summaries"},
+    # Initiative 5: Coherence feedback loop
+    "coherence_feedback": {"enabled": True, "description": "Coherence harness feedback loop analysis"},
+    # Initiative 6: Webhook notifications
+    "notifications": {"enabled": False, "mode": "shadow", "description": "Outbound webhook notifications"},
 }
 
 

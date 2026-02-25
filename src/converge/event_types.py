@@ -85,6 +85,22 @@ class EventType:
     INTENT_PRE_EVALUATED = "intent.pre_evaluated"
     # Feature flags
     FEATURE_FLAG_CHANGED = "feature_flag.changed"
+    # Coherence harness
+    COHERENCE_EVALUATED = "coherence.evaluated"
+    COHERENCE_BASELINE_UPDATED = "coherence.baseline_updated"
+    COHERENCE_INCONSISTENCY = "coherence.inconsistency"
+    # Risk reclassification (Initiative 2)
+    RISK_LEVEL_RECLASSIFIED = "risk.level_reclassified"
+    # LLM review advisor (Initiative 4)
+    REVIEW_ANALYSIS_GENERATED = "review.analysis_generated"
+    REVIEW_ANALYSIS_FAILED = "review.analysis_failed"
+    # Coherence feedback (Initiative 5)
+    COHERENCE_SUGGESTION = "coherence.suggestion"
+    COHERENCE_SUGGESTION_ACCEPTED = "coherence.suggestion_accepted"
+    # Notifications (Initiative 6)
+    NOTIFICATION_SENT = "notification.sent"
+    NOTIFICATION_FAILED = "notification.failed"
     # Worker
     WORKER_STARTED = "worker.started"
     WORKER_STOPPED = "worker.stopped"
+    WORKER_HEARTBEAT = "worker.heartbeat"

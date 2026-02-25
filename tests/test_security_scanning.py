@@ -335,8 +335,8 @@ class TestSecurityGate:
         sec_gates = [g for g in result.gates if g.gate == GateName.SECURITY]
         assert sec_gates[0].passed is False
 
-    def test_no_security_findings_param_skips_gate(self, db_path):
-        """When security_findings is None, the gate is not evaluated."""
+    def test_no_security_findings_param_defaults_to_pass(self, db_path):
+        """When security_findings is None, gate evaluates with empty list (passes)."""
         result = evaluate(
             risk_level=RiskLevel.MEDIUM,
             checks_passed=["lint"],
@@ -344,7 +344,8 @@ class TestSecurityGate:
             containment_score=0.8,
         )
         sec_gates = [g for g in result.gates if g.gate == GateName.SECURITY]
-        assert len(sec_gates) == 0
+        assert len(sec_gates) == 1
+        assert sec_gates[0].passed is True
 
     def test_medium_low_findings_pass(self, db_path):
         """Medium and low severity findings don't block."""
@@ -370,7 +371,8 @@ class TestSecurityGate:
             containment_score=0.5,
         )
         assert result.verdict.value == "ALLOW"
-        assert len(result.gates) == 3  # verification, containment, entropy
+        # verification, containment, entropy, security (always present now)
+        assert len(result.gates) == 4
 
 
 # ---------------------------------------------------------------------------

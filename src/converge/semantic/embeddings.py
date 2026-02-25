@@ -2,6 +2,12 @@
 
 Providers implement a simple protocol: text in, vector out.
 A deterministic test provider is included for CI (no external dependencies).
+
+The DeterministicProvider uses SHA-256 hashing to produce vectors.  Identical
+semantic text produces identical vectors (cosine similarity = 1.0), making it
+suitable for detecting exact-duplicate intents in CI.  For *real* semantic
+similarity (e.g. "add login page" ≈ "implement authentication screen"), use
+SentenceTransformerProvider or another ML-based provider.
 """
 
 from __future__ import annotations
@@ -111,6 +117,14 @@ def _hash_to_vector(text: str, dimension: int) -> list[float]:
 _PROVIDERS: dict[str, type[EmbeddingProvider]] = {
     "deterministic": DeterministicProvider,
 }
+
+# Auto-register sentence-transformers provider if available
+try:
+    from converge.semantic.sentence_transformer_provider import SentenceTransformerProvider
+
+    _PROVIDERS["sentence-transformers"] = SentenceTransformerProvider
+except ImportError:
+    pass  # sentence-transformers not installed
 
 _active_provider: EmbeddingProvider | None = None
 
