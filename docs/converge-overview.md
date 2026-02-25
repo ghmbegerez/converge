@@ -13,6 +13,11 @@ Converge addresses integration risk that appears at the system level:
 - hidden blast radius from highly connected files
 - stale validations when target branch already moved
 
+The central operating problem is **rate mismatch**:
+teams (and agents) can create candidate changes faster than a repository can safely integrate them.
+That mismatch produces queue pressure, retry churn, review debt, and entropy accumulation.
+Converge exists to regulate this gap by making integration throughput depend on explicit evidence and policy, not on arrival rate.
+
 ## Core Model
 
 Converge manages `Intent` entities (change contracts) with lifecycle states:
@@ -40,6 +45,7 @@ For each intent, Converge evaluates:
 3. **Retry bound**: repeated failures are rejected after configured max retries.
 
 These invariants are the load-bearing behavior of the engine.
+Together, they also enforce controlled throughput under pressure: fast creation does not bypass safe integration.
 
 ## Policy Gates
 
@@ -59,6 +65,9 @@ Risk evaluation includes multiple structural signals (for example entropy delta,
 Resulting scores are used both for visibility and policy enforcement.
 
 Risk auto-classification can be enabled via feature flags.
+
+This is not only scoring; it is a queue-shaping mechanism.
+When incoming change velocity exceeds safe integration velocity, risk and policy gates prioritize, delay, or block changes to protect system coherence.
 
 ## Coherence Harness
 

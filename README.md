@@ -4,6 +4,11 @@ Code entropy control through semantic merge coordination.
 
 Converge manages **intents** — semantic contracts representing proposed changes — through a controlled lifecycle before they merge into your codebase. Every decision is recorded as an immutable event, giving you full audit trail, health monitoring, and predictive capabilities.
 
+## Why Converge
+
+The core problem is a **rate mismatch**: humans and agents can create candidate changes faster than a repository can safely integrate them.
+Converge regulates that gap with explicit validation, risk, and policy gates so integration throughput is driven by evidence, not by arrival rate.
+
 ## Install
 
 ```bash
@@ -46,7 +51,7 @@ converge validate --intent-id intent-001
 ```
 
 This runs the full pipeline:
-- Simulates the merge in an isolated git worktree
+- Simulates the merge via `git merge-tree`
 - Evaluates risk (entropy, damage, propagation, containment)
 - Checks the 3 policy gates (verification, containment, entropy)
 - Returns `validated` or `blocked` with evidence
@@ -112,44 +117,52 @@ POLICY (dynamic constraints)         → informed by projections
 ## Commands
 
 ```
-converge intent   {create, list, status}     Intent lifecycle
-converge simulate                             Merge simulation (worktree)
-converge validate                             Full pipeline: sim + risk + policy
-converge merge    {confirm}                   Confirm merge
-converge queue    {run, reset, inspect}       Queue operations
-converge policy   {eval, calibrate}           Policy evaluation
-converge risk     {eval, shadow, gate,        Risk scoring and analysis
-                   review, policy-set,
-                   policy-get}
-converge health   {now, trend, change,        Health monitoring
-                   change-trend, entropy}
-converge compliance {report, alerts,          SLO/KPI compliance
-                     threshold-set,
-                     threshold-get,
-                     threshold-list}
-converge agent    {policy-set, policy-get,    Agent authorization
-                   policy-list, authorize}
-converge audit    {prune, events}             Event log queries
-converge metrics                              Integration metrics
-converge archaeology                          Git history analysis
-converge predictions                          Predictive signals
-converge serve                                HTTP API server
+converge --help                               Essential workflow commands
+converge --help-all                           Full command surface
+
+Core workflow:
+  converge intent   {create, list, status}
+  converge simulate
+  converge validate
+  converge queue    {run, reset, inspect}
+  converge merge    {confirm}
+
+Operational/advanced:
+  converge doctor
+  converge risk / health / compliance / verification / predictions
+  converge semantic / coherence / harness / review / security / export
+  converge agent / audit / metrics / archaeology
+  converge serve / worker
 ```
 
 ## Policy gates
 
-Three gates evaluated for every intent:
+Five gates evaluated for every intent:
 
 | Gate | What it checks | Threshold varies by |
 |---|---|---|
 | **Verification** | Required checks passed (lint, tests) | risk_level |
 | **Containment** | Change is scoped, not spreading everywhere | risk_level |
 | **Entropy** | Change complexity within budget | risk_level |
+| **Coherence** | System-level invariants via harness score | risk_level |
+| **Security** | Security findings against severity thresholds | risk_level |
 
 Risk profiles (`low`, `medium`, `high`, `critical`) define the thresholds. Customize in `policy.json` or calibrate from history:
 
 ```bash
 converge policy calibrate
+```
+
+## Semantics and feature flags
+
+- Semantic conflict workflows exist in the CLI/API, but semantic quality depends on embedding provider configuration.
+- Default embedding mode is deterministic; for stronger semantic similarity, configure a model provider (for example sentence-transformers).
+- Advanced behavior is controlled by feature flags (for example semantic conflicts, coherence feedback, advisory locks, LLM review advisor, notifications).
+- Inspect and tune with:
+
+```bash
+converge --help-all
+converge doctor
 ```
 
 ## Risk evaluation
@@ -216,18 +229,25 @@ Event types: `intent.created`, `simulation.completed`, `check.completed`, `risk.
 converge serve --port 9876
 ```
 
-All read endpoints from projections, all writes produce events. Auth via `CONVERGE_API_KEYS` env var with RBAC (`viewer`, `operator`, `admin`).
+Converge exposes:
+- **Canonical API prefix**: `/v1`
+- **Compatibility prefix**: `/api` (legacy mirror)
+- **Operational endpoints outside version prefix**: `/health`, `/health/ready`, `/health/live`, `/metrics`
+- **Webhook endpoint**: `/integrations/github/webhook`
 
-Key endpoints:
-- `GET /health`
-- `GET /api/summary`
-- `GET /api/intents`
-- `GET /api/health/repo/now`
-- `GET /api/compliance/report`
-- `GET /api/risk/review?intent_id=X`
-- `GET /api/predictions`
-- `GET /api/events`
-- `POST /integrations/github/webhook` (pull_request, push, merge_group)
+Auth/RBAC is controlled via `CONVERGE_API_KEYS` (`viewer`, `operator`, `admin`) when auth is enabled.
+
+Representative endpoints:
+- `GET /v1/intents`
+- `GET /v1/summary`
+- `GET /v1/risk/review?intent_id=<id>`
+- `GET /v1/health/repo/now`
+- `GET /v1/events`
+- `GET /v1/compliance/report`
+- `GET /v1/predictions`
+- `POST /integrations/github/webhook`
+
+For the exact live contract in your running build, use the OpenAPI docs served by FastAPI (`/docs`).
 
 ## Environment variables
 
