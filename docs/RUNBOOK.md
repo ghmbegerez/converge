@@ -341,7 +341,7 @@ converge --db $CONVERGE_DB_PATH intake set-mode auto
 | Queue backlog growing, debt 30-70 | `throttle` |
 | Queue overloaded, debt > 70 | `pause` |
 | Incident in progress | `pause` |
-| After incident resolved | `throttle` then `normal` |
+| After incident resolved | `throttle` then `open` |
 
 ### API endpoints
 

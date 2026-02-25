@@ -85,13 +85,14 @@ This runs the full pipeline:
 ### 3. Process the queue
 
 ```bash
-converge queue run --auto-confirm
+converge queue run
 ```
 
 Processes all VALIDATED intents by priority. For each one:
 - Revalidates against the current state of main (invariant 2)
 - If blocked, increments retries; after max retries, rejects (invariant 3)
-- If `--auto-confirm`, executes the real git merge
+- With explicit confirmation, merge is finalized via `converge merge confirm`
+- Use `--auto-confirm` only for automated operation (for example worker-driven pipelines)
 
 ### 4. Check health
 
