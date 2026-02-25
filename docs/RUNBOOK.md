@@ -70,6 +70,12 @@ converge serve --host 127.0.0.1 --port 9876
 converge worker
 ```
 
+### API prefixes
+
+- Canonical prefix: `/v1`
+- Compatibility mirror: `/api`
+- Health/metrics remain outside version prefixes (`/health*`, `/metrics`)
+
 ### Command discovery and diagnostics
 
 ```bash
@@ -109,9 +115,7 @@ kubectl delete pod -l app=converge --force --grace-period=0
 After an emergency stop, the queue lock may be stale. Clear it:
 
 ```bash
-converge queue reset --intent-id any --clear-lock
-# or via API
-curl -X POST http://localhost:9876/api/queue/reset -d '{"intent_id": "any", "clear_lock": true}'
+converge queue reset --intent-id <existing-intent-id> --clear-lock
 ```
 
 ## Rollback: Postgres → SQLite
@@ -323,16 +327,17 @@ converge --db $CONVERGE_DB_PATH intake status
 ### Change intake mode
 
 ```bash
-converge --db $CONVERGE_DB_PATH intake set-mode --mode normal
-converge --db $CONVERGE_DB_PATH intake set-mode --mode throttle
-converge --db $CONVERGE_DB_PATH intake set-mode --mode pause
+converge --db $CONVERGE_DB_PATH intake set-mode open
+converge --db $CONVERGE_DB_PATH intake set-mode throttle
+converge --db $CONVERGE_DB_PATH intake set-mode pause
+converge --db $CONVERGE_DB_PATH intake set-mode auto
 ```
 
 ### When to change mode
 
 | Condition | Recommended mode |
 |---|---|
-| Queue healthy, debt < 30 | `normal` |
+| Queue healthy, debt < 30 | `open` |
 | Queue backlog growing, debt 30-70 | `throttle` |
 | Queue overloaded, debt > 70 | `pause` |
 | Incident in progress | `pause` |
@@ -534,7 +539,7 @@ dependency or remove it from the dependent intent.
 
 ```bash
 # 1. Pause intake
-converge --db $CONVERGE_DB_PATH intake set-mode --mode pause
+converge --db $CONVERGE_DB_PATH intake set-mode pause
 
 # 2. Check debt
 converge --db $CONVERGE_DB_PATH verification debt
@@ -543,9 +548,9 @@ converge --db $CONVERGE_DB_PATH verification debt
 converge --db $CONVERGE_DB_PATH queue run --limit 5 --target main
 
 # 4. Resume when stable
-converge --db $CONVERGE_DB_PATH intake set-mode --mode throttle
+converge --db $CONVERGE_DB_PATH intake set-mode throttle
 # ... wait for debt to decrease ...
-converge --db $CONVERGE_DB_PATH intake set-mode --mode normal
+converge --db $CONVERGE_DB_PATH intake set-mode open
 ```
 
 ### Disable a misbehaving feature
@@ -560,7 +565,7 @@ curl -X POST http://localhost:9876/api/flags/<flag_name> \
 
 ```bash
 # 1. Pause intake
-converge --db $CONVERGE_DB_PATH intake set-mode --mode pause
+converge --db $CONVERGE_DB_PATH intake set-mode pause
 
 # 2. Run security scan
 converge --db $CONVERGE_DB_PATH security scan
@@ -582,7 +587,7 @@ converge --db $CONVERGE_DB_PATH security findings --severity critical
 converge queue inspect --only-actionable
 
 # Force-release lock
-converge queue reset --intent-id any --clear-lock
+converge queue reset --intent-id <existing-intent-id> --clear-lock
 ```
 
 ### Worker not processing

@@ -15,6 +15,32 @@ Converge regulates that gap with explicit validation, risk, and policy gates so 
 pip install -e .
 ```
 
+## Prerequisites and assumptions
+
+Hard prerequisites (required for core flow):
+- Run inside a git repository.
+- Source/target refs used by intents must exist and be reachable by git.
+- Writable state database (`.converge/state.db` by default, or `--db` / env override).
+- Python environment with project dependencies installed.
+
+Operational assumptions (core behavior depends on these):
+- Required checks (`lint`, `unit_tests`, etc.) assume corresponding commands/tooling exist in the repo environment.
+- Queue safety assumes single active queue processor per backend lock domain, unless you explicitly configure distributed locking strategy.
+- Validation decisions are deterministic and policy-driven; blocked intents are expected outcomes, not exceptions.
+
+Intent/plan prerequisites (before processing):
+- Each intent must have a valid `source`, `target`, and lifecycle start state (normally `READY`).
+- Queue processing advances intents from `VALIDATED`; intents in `READY` are expected to be validated first.
+- If an intent declares `dependencies`, each dependency intent is expected to reach `MERGED` before processing; otherwise the intent is `dependency_blocked`.
+- `plan_id` groups related intents, but execution order is defined by dependency edges, not by creation timestamp.
+- Dependency graphs are expected to be acyclic in practice; circular dependencies can stall progression until manually resolved.
+- Starting point assumption for a plan: referenced dependency intent IDs already exist in the same event store scope/tenant.
+
+Optional capabilities (only if configured):
+- Strong semantic similarity requires a non-deterministic embedding provider (for example sentence-transformers).
+- Security gate quality depends on scanner toolchain availability.
+- LLM advisory requires provider credentials and SDKs.
+
 ## Quick start (5 minutes)
 
 ### 1. Create an intent
@@ -53,7 +79,7 @@ converge validate --intent-id intent-001
 This runs the full pipeline:
 - Simulates the merge via `git merge-tree`
 - Evaluates risk (entropy, damage, propagation, containment)
-- Checks the 3 policy gates (verification, containment, entropy)
+- Checks the 5 policy gates (verification, containment, entropy, coherence, security)
 - Returns `validated` or `blocked` with evidence
 
 ### 3. Process the queue
@@ -253,6 +279,8 @@ For the exact live contract in your running build, use the OpenAPI docs served b
 
 | Variable | Purpose |
 |---|---|
+| `CONVERGE_DB_PATH` | SQLite database path (default: `.converge/state.db`) |
+| `CONVERGE_DB_BACKEND` | Storage backend: `sqlite` or `postgres` (default: `sqlite`) |
 | `CONVERGE_TRACE_ID` | Fixed trace ID for a run |
 | `CONVERGE_AUTH_REQUIRED` | Enable API auth (default: `1`) |
 | `CONVERGE_API_KEYS` | API key registry (`key:role:actor:tenant`) |
