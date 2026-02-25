@@ -25,7 +25,7 @@ converge intent create --file intent.json
 
 ### 2. Validate
 
-Runs the full pipeline: merge simulation (isolated worktree) + checks + policy evaluation + risk scoring.
+Runs the full pipeline: merge simulation (`git merge-tree`) + checks + policy evaluation + risk scoring.
 
 ```bash
 converge validate --intent-id <id> --source feature/x --target main
@@ -61,7 +61,9 @@ Every transition produces an immutable event in the audit log. Nothing happens s
 
 ## Next Steps
 
-- `converge --help-all` — see all available commands
+- `converge --help` — essential workflow commands
+- `converge --help-all` — full command surface (risk/health/security/review/semantic/coherence)
+- `converge doctor` — validate environment setup and runtime prerequisites
 - `converge serve` — start the HTTP API + dashboard
 - `converge worker` — start automated queue processing
 - See `docs/RUNBOOK.md` for production deployment

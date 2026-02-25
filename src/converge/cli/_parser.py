@@ -70,7 +70,7 @@ def _register_intent_commands(sub: argparse._SubParsersAction) -> None:
     p.add_argument("--status", required=True, choices=[s.value for s in Status])
 
     # -- simulate --
-    p = sub.add_parser("simulate", help="Simulate merge in isolated worktree")
+    p = sub.add_parser("simulate", help="Simulate merge via git merge-tree (no worktree mutation)")
     p.add_argument("--source", required=True)
     p.add_argument("--target", required=True)
     p.add_argument("--intent-id")

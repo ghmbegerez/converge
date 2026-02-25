@@ -3,6 +3,10 @@
 Este documento formaliza los 4 puntos requeridos para cerrar el ciclo entre
 vision, diseno, operacion y aprendizaje.
 
+**Estado actual: ninguno de los 4 puntos esta implementado como proceso formal.**
+La infraestructura tecnica para soportarlos existe (metricas, compliance, audit chain),
+pero no hay procesos operativos ni evidencia de ejecucion.
+
 ## 1. Criterios de exito numericos por etapa
 
 Definir y publicar objetivos cuantitativos antes de ejecutar cada etapa:
@@ -17,6 +21,11 @@ Definir y publicar objetivos cuantitativos antes de ejecutar cada etapa:
 Regla de gobierno:
 - No se declara etapa cerrada sin evidencia de cumplimiento de SLO/SLA.
 
+**Estado:** La infraestructura para medir SLOs existe (`converge compliance report`,
+`converge health now`, API `/metrics`). Los umbrales son configurables via
+`converge compliance threshold-set`. No hay evidencia de SLOs publicados ni
+de revisiones formales de cumplimiento.
+
 ## 2. Plan de adopcion real (equipos piloto)
 
 Cada etapa de producto debe validar uso real con equipos concretos:
@@ -29,6 +38,10 @@ Cada etapa de producto debe validar uso real con equipos concretos:
 Regla de gobierno:
 - No se priorizan features nuevas sin aprendizajes del piloto anterior.
 
+**Estado:** No hay programa piloto en ejecucion. Las pruebas smoke (Phase 1 + Phase 2)
+validaron que el sistema funciona de punta a punta, pero no son adopcion real con
+un equipo usando el sistema en su workflow diario.
+
 ## 3. Politica de compatibilidad y migraciones
 
 Definir politica explicita para:
@@ -40,6 +53,10 @@ Definir politica explicita para:
 
 Regla de gobierno:
 - Todo cambio incompatible debe incluir migracion, plan de rollback y prueba de paridad.
+
+**Estado:** Existe rollback Postgres/SQLite documentado en el RUNBOOK.
+El esquema se auto-migra via `ensure_db()`. No hay versionado formal
+de payloads de eventos ni politica de compatibilidad de API.
 
 ## 4. Cadencia de revision de arquitectura
 
@@ -60,6 +77,10 @@ Regla de gobierno:
 - Si una revision detecta degradacion sostenida, se congela expansion funcional
   hasta restaurar indicadores estructurales.
 
+**Estado:** No hay cadencia de revision establecida. Los datos para alimentar
+la revision existen (`converge health trend`, `converge verification debt`,
+`converge compliance report`), pero no hay proceso recurrente ni ADRs.
+
 ## Definicion de cierre del circulo
 
 Se considera cerrado cuando:
@@ -68,3 +89,7 @@ Se considera cerrado cuando:
 2. Hay adopcion piloto real con evidencia de uso.
 3. Hay politica formal de compatibilidad/migraciones aplicada.
 4. Hay revision de arquitectura recurrente con decisiones registradas.
+
+**Conclusion: el circulo no esta cerrado.** Los 4 puntos son requisitos previos
+a considerar Converge listo para produccion formal. La infraestructura tecnica
+esta lista; faltan los procesos operativos.

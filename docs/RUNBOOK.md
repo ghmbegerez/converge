@@ -70,6 +70,19 @@ converge serve --host 127.0.0.1 --port 9876
 converge worker
 ```
 
+### Command discovery and diagnostics
+
+```bash
+# Essential commands
+converge --help
+
+# Full command surface (advanced operations)
+converge --help-all
+
+# Environment and dependency checks
+converge doctor
+```
+
 ## Shutdown
 
 ### Graceful shutdown (recommended)
@@ -180,7 +193,7 @@ The response contains the new key. Update `CONVERGE_API_KEYS` env var with the n
 ### Check debt score
 
 ```bash
-converge verification debt --db $CONVERGE_DB_PATH
+converge --db $CONVERGE_DB_PATH verification debt
 ```
 
 Output includes:
@@ -216,23 +229,23 @@ GET /api/verification/debt?tenant_id=X  — tenant-scoped
 ### Check review backlog
 
 ```bash
-converge review list --db $CONVERGE_DB_PATH --status pending
-converge review summary --db $CONVERGE_DB_PATH
+converge --db $CONVERGE_DB_PATH review list --status pending
+converge --db $CONVERGE_DB_PATH review summary
 ```
 
 ### Assign, complete, cancel, escalate
 
 ```bash
-converge review assign --db $CONVERGE_DB_PATH --task-id <id> --reviewer <agent>
-converge review complete --db $CONVERGE_DB_PATH --task-id <id> --resolution approved
-converge review cancel --db $CONVERGE_DB_PATH --task-id <id>
-converge review escalate --db $CONVERGE_DB_PATH --task-id <id>
+converge --db $CONVERGE_DB_PATH review assign --task-id <id> --reviewer <agent>
+converge --db $CONVERGE_DB_PATH review complete --task-id <id> --resolution approved
+converge --db $CONVERGE_DB_PATH review cancel --task-id <id>
+converge --db $CONVERGE_DB_PATH review escalate --task-id <id>
 ```
 
 ### Check SLA compliance
 
 ```bash
-converge review sla-check --db $CONVERGE_DB_PATH
+converge --db $CONVERGE_DB_PATH review sla-check
 ```
 
 ### Escalation criteria
@@ -258,15 +271,15 @@ GET  /api/reviews/summary     — counts by status
 ### Check security status
 
 ```bash
-converge security summary --db $CONVERGE_DB_PATH
-converge security findings --db $CONVERGE_DB_PATH --severity critical
-converge security findings --db $CONVERGE_DB_PATH --severity high
+converge --db $CONVERGE_DB_PATH security summary
+converge --db $CONVERGE_DB_PATH security findings --severity critical
+converge --db $CONVERGE_DB_PATH security findings --severity high
 ```
 
 ### Trigger a security scan
 
 ```bash
-converge security scan --db $CONVERGE_DB_PATH --intent-id <id>
+converge --db $CONVERGE_DB_PATH security scan --intent-id <id>
 ```
 
 ### Triage workflow
@@ -304,15 +317,15 @@ POST /api/security/scan            — trigger scan (requires operator)
 ### Check current mode
 
 ```bash
-converge intake status --db $CONVERGE_DB_PATH
+converge --db $CONVERGE_DB_PATH intake status
 ```
 
 ### Change intake mode
 
 ```bash
-converge intake set-mode --db $CONVERGE_DB_PATH --mode normal
-converge intake set-mode --db $CONVERGE_DB_PATH --mode throttle
-converge intake set-mode --db $CONVERGE_DB_PATH --mode pause
+converge --db $CONVERGE_DB_PATH intake set-mode --mode normal
+converge --db $CONVERGE_DB_PATH intake set-mode --mode throttle
+converge --db $CONVERGE_DB_PATH intake set-mode --mode pause
 ```
 
 ### When to change mode
@@ -339,15 +352,15 @@ POST /api/intake/mode     — set mode (requires operator role)
 ### View active conflicts
 
 ```bash
-converge semantic conflict-list --db $CONVERGE_DB_PATH
-converge semantic conflicts --db $CONVERGE_DB_PATH
+converge --db $CONVERGE_DB_PATH semantic conflict-list
+converge --db $CONVERGE_DB_PATH semantic conflicts
 ```
 
 ### Resolve a conflict
 
 ```bash
-converge semantic conflict-resolve --db $CONVERGE_DB_PATH \
-  --conflict-id <id> --resolution "overlapping scope accepted"
+converge --db $CONVERGE_DB_PATH semantic conflict-resolve \
+  --intent-a <intent-id-1> --intent-b <intent-id-2> --resolution "overlapping scope accepted"
 ```
 
 ### Triage workflow
@@ -369,15 +382,15 @@ converge semantic conflict-resolve --db $CONVERGE_DB_PATH \
 Use when embeddings are stale or similarity model has changed.
 
 ```bash
-converge semantic status --db $CONVERGE_DB_PATH
-converge semantic reindex --db $CONVERGE_DB_PATH
-converge semantic status --db $CONVERGE_DB_PATH   # verify
+converge --db $CONVERGE_DB_PATH semantic status
+converge --db $CONVERGE_DB_PATH semantic reindex
+converge --db $CONVERGE_DB_PATH semantic status   # verify
 ```
 
 ### Index a specific intent
 
 ```bash
-converge semantic index --db $CONVERGE_DB_PATH --intent-id <id>
+converge --db $CONVERGE_DB_PATH semantic index --intent-id <id>
 ```
 
 ---
@@ -389,13 +402,13 @@ converge semantic index --db $CONVERGE_DB_PATH --intent-id <id>
 Run once after deployment or database migration.
 
 ```bash
-converge audit init-chain --db $CONVERGE_DB_PATH
+converge --db $CONVERGE_DB_PATH audit init-chain
 ```
 
 ### Verify chain integrity
 
 ```bash
-converge audit verify-chain --db $CONVERGE_DB_PATH
+converge --db $CONVERGE_DB_PATH audit verify-chain
 ```
 
 **If invalid**: Chain hash mismatch indicates potential tampering or data corruption.
@@ -455,6 +468,12 @@ Create `.converge/flags.json`:
 | audit_chain | enabled | — | Event tamper-evidence chain |
 | code_ownership | **disabled** | — | Code-area ownership SoD |
 | pre_eval_harness | enabled | shadow | Pre-PR evaluation harness |
+| semantic_embeddings_model | enabled | deterministic | Embedding provider mode |
+| risk_auto_classify | enabled | enforce | Auto-reclassify risk level from scores |
+| advisory_locks | **disabled** | shadow | PostgreSQL advisory queue locks |
+| llm_review_advisor | **disabled** | shadow | LLM-powered review summaries |
+| coherence_feedback | enabled | — | Suggestion loop for coherence harness |
+| notifications | **disabled** | shadow | Outbound webhook notifications |
 
 **Priority**: env vars > config file > defaults.
 
@@ -465,17 +484,20 @@ Create `.converge/flags.json`:
 ### Evaluate an intent before creation
 
 ```bash
-converge harness evaluate --db $CONVERGE_DB_PATH \
-  --source feature/x --target main \
-  --description "Add user authentication"
-```
+cat > /tmp/draft-intent.json <<'EOF'
+{
+  "source": "feature/x",
+  "target": "main",
+  "risk_level": "medium",
+  "semantic": {
+    "problem_statement": "Authentication flow lacks refresh token support",
+    "objective": "Add refresh token lifecycle handling"
+  }
+}
+EOF
 
-### API evaluation
-
-```bash
-curl -X POST http://localhost:9876/api/intents/evaluate \
-  -H "Content-Type: application/json" \
-  -d '{"source": "feature/x", "target": "main", "semantic": {"description": "Add auth"}}'
+converge --db $CONVERGE_DB_PATH harness evaluate \
+  --file /tmp/draft-intent.json --mode shadow
 ```
 
 ### Modes
@@ -495,8 +517,8 @@ A **plan** groups N intents via `plan_id`. Each intent can declare `dependencies
 **Intent stuck waiting for dependency**: Check blocking intent status.
 
 ```bash
-converge intent status --db $CONVERGE_DB_PATH --intent-id <blocked-id>
-converge intent status --db $CONVERGE_DB_PATH --intent-id <dependency-id>
+converge --db $CONVERGE_DB_PATH intent status --intent-id <blocked-id>
+converge --db $CONVERGE_DB_PATH intent status --intent-id <dependency-id>
 ```
 
 **Circular dependency**: Both intents skip indefinitely. Remove one dependency.
@@ -512,18 +534,18 @@ dependency or remove it from the dependent intent.
 
 ```bash
 # 1. Pause intake
-converge intake set-mode --db $CONVERGE_DB_PATH --mode pause
+converge --db $CONVERGE_DB_PATH intake set-mode --mode pause
 
 # 2. Check debt
-converge verification debt --db $CONVERGE_DB_PATH
+converge --db $CONVERGE_DB_PATH verification debt
 
 # 3. Process critical intents only
-converge queue run --db $CONVERGE_DB_PATH --limit 5 --target main
+converge --db $CONVERGE_DB_PATH queue run --limit 5 --target main
 
 # 4. Resume when stable
-converge intake set-mode --db $CONVERGE_DB_PATH --mode throttle
+converge --db $CONVERGE_DB_PATH intake set-mode --mode throttle
 # ... wait for debt to decrease ...
-converge intake set-mode --db $CONVERGE_DB_PATH --mode normal
+converge --db $CONVERGE_DB_PATH intake set-mode --mode normal
 ```
 
 ### Disable a misbehaving feature
@@ -538,13 +560,13 @@ curl -X POST http://localhost:9876/api/flags/<flag_name> \
 
 ```bash
 # 1. Pause intake
-converge intake set-mode --db $CONVERGE_DB_PATH --mode pause
+converge --db $CONVERGE_DB_PATH intake set-mode --mode pause
 
 # 2. Run security scan
-converge security scan --db $CONVERGE_DB_PATH
+converge --db $CONVERGE_DB_PATH security scan
 
 # 3. Review critical findings
-converge security findings --db $CONVERGE_DB_PATH --severity critical
+converge --db $CONVERGE_DB_PATH security findings --severity critical
 
 # 4. Block affected intents via policy review
 ```
@@ -589,6 +611,81 @@ converge queue reset --intent-id any --clear-lock
 2. Check DSN: `echo $CONVERGE_PG_DSN`
 3. Test connection: `psql "$CONVERGE_PG_DSN" -c "SELECT 1"`
 4. Check connection pool: review worker/API logs for pool exhaustion
+
+## Doctor (Environment Validation)
+
+### Run diagnostic check
+
+```bash
+converge --db $CONVERGE_DB_PATH doctor
+```
+
+Validates environment setup, database connectivity, feature flag state, and reports overall health. Use as a first step when something isn't working.
+
+---
+
+## Coherence Harness Operations
+
+### Initialize harness config
+
+```bash
+converge --db $CONVERGE_DB_PATH coherence init
+```
+
+Creates `.converge/coherence_harness.json` with the default question template. Edit this file to add project-specific coherence questions.
+
+### List configured questions
+
+```bash
+converge --db $CONVERGE_DB_PATH coherence list
+```
+
+### Run harness against current state
+
+```bash
+converge --db $CONVERGE_DB_PATH coherence run
+```
+
+Executes all enabled questions, computes score (0-100), and returns verdict (PASS/WARN/FAIL).
+
+### Update baselines
+
+```bash
+converge --db $CONVERGE_DB_PATH coherence baseline
+```
+
+Captures current values as baselines for future comparisons. Run after known-good state changes (e.g., after a major release).
+
+### Suggest new questions from failure patterns
+
+```bash
+converge --db $CONVERGE_DB_PATH coherence suggest --lookback-days 90
+```
+
+Analyzes recent failure history and suggests new harness questions based on recurring patterns.
+
+### Accept a suggestion
+
+```bash
+converge --db $CONVERGE_DB_PATH coherence accept --suggestion-id <id>
+```
+
+Adds the suggested question to the harness configuration.
+
+---
+
+## Export Operations
+
+### Export decision dataset
+
+```bash
+converge --db $CONVERGE_DB_PATH export decisions --format jsonl --output decisions.jsonl
+converge --db $CONVERGE_DB_PATH export decisions --format csv --output decisions.csv
+```
+
+Exports historical decisions for external analysis or calibration.
+
+---
 
 ## Secrets Management
 
