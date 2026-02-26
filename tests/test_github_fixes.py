@@ -353,27 +353,25 @@ class TestWebhookRateLimitExempt:
 @pytest.mark.integration
 class TestWebhookPayloadLimit:
     def test_oversized_payload_returns_413(self, db_path, live_server):
-        """Payload exceeding max size returns 413."""
+        """Payload exceeding max size returns 413.
+
+        Uses httpx instead of urllib because urllib may raise a BrokenPipeError
+        (wrapped in URLError) when the server rejects the payload before the
+        client finishes writing.  httpx handles early server responses cleanly.
+        """
+        import httpx
+
         oversized = json.dumps({"data": "x" * (1048576 + 1)}).encode()
-        req = Request(
+        resp = httpx.post(
             f"{live_server}/integrations/github/webhook",
-            data=oversized,
+            content=oversized,
             headers={
                 "Content-Type": "application/json",
                 "X-GitHub-Event": "ping",
                 "X-GitHub-Delivery": "d-oversize-1",
             },
-            method="POST",
         )
-        try:
-            urlopen(req)
-            pytest.fail("Should have returned 413")
-        except HTTPError as e:
-            assert e.code == 413
-        except (BrokenPipeError, ConnectionError):
-            # Server closes the connection before reading the full body
-            # when Content-Length exceeds the limit — this is correct behavior.
-            pass
+        assert resp.status_code == 413
 
     def test_normal_payload_accepted(self, db_path, live_server):
         """Normal-sized payload passes size check."""

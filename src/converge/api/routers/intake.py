@@ -27,6 +27,18 @@ def intake_status_http(
     return intake.intake_status(tenant_id=tenant)
 
 
+@router.get("/intake/mode")
+def intake_mode_http(
+    request: Request,
+    tenant_id: str | None = None,
+    principal: dict = Depends(require_viewer),
+):
+    """Current intake mode (simplified view for UI)."""
+    tenant = principal.get("tenant") or tenant_id
+    status = intake.intake_status(tenant_id=tenant)
+    return {"mode": status.get("mode", "open")}
+
+
 @router.post("/intake/mode")
 def intake_set_mode_http(
     request: Request,

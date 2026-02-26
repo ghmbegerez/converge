@@ -9,7 +9,9 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from converge import event_log
 from converge.api.rate_limit import RateLimitMiddleware
@@ -35,6 +37,7 @@ log = logging.getLogger("converge.api")
 def create_app(
     db_path: str | Path = "",
     webhook_secret: str = "",
+    ui_dist: str | Path | None = None,
 ) -> FastAPI:
     """Build and return a configured FastAPI application."""
     app = FastAPI(
@@ -108,6 +111,15 @@ def create_app(
     if os.environ.get("CONVERGE_RATE_LIMIT_ENABLED", "1") == "1":
         app.add_middleware(RateLimitMiddleware)
 
+    # CORS — allow cross-origin requests from any origin
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
     # ---------------------------------------------------------------
     # Routers — mounted at /api (legacy) and /v1 (canonical)
     # ---------------------------------------------------------------
@@ -133,5 +145,26 @@ def create_app(
 
     # Webhooks (own auth via HMAC signature)
     app.include_router(webhooks.router)
+
+    # ---------------------------------------------------------------
+    # Optional: serve UI dist (single-binary deployment)
+    # ---------------------------------------------------------------
+    ui_path = Path(ui_dist) if ui_dist else None
+    if ui_path and ui_path.is_dir():
+        index_html = ui_path / "index.html"
+
+        # SPA catch-all: any path not matched by API routes serves index.html
+        @app.get("/{full_path:path}", include_in_schema=False)
+        async def spa_fallback(full_path: str):
+            # Serve actual file if it exists (JS, CSS, images, etc.)
+            candidate = ui_path / full_path
+            if full_path and candidate.is_file():
+                return FileResponse(candidate)
+            # Otherwise serve index.html for SPA routing
+            if index_html.is_file():
+                return FileResponse(index_html)
+            raise HTTPException(404, "UI not found")
+
+        log.info("Serving UI from %s", ui_path)
 
     return app

@@ -460,6 +460,7 @@ def _register_server_commands(sub: argparse._SubParsersAction) -> None:
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--port", type=int, default=9876)
     p.add_argument("--secret")
+    p.add_argument("--ui-dist", default="", help="Path to built UI dist directory for single-process deployment")
 
     # -- worker --
     sub.add_parser("worker", help="Start queue worker process")

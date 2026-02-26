@@ -540,7 +540,8 @@ def cmd_doctor(args: argparse.Namespace) -> int:
 def cmd_serve(args: argparse.Namespace) -> int:
     from converge import server
     server.serve(host=args.host, port=args.port,
-                 webhook_secret=getattr(args, "secret", ""))
+                 webhook_secret=getattr(args, "secret", ""),
+                 ui_dist=getattr(args, "ui_dist", ""))
     return 0
 
 
