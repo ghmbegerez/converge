@@ -128,37 +128,6 @@ def export_decisions_http(
     )
 
 
-@router.get("/reviews")
-def reviews_list_http(
-    request: Request,
-    tenant_id: str | None = None,
-    intent_id: str | None = None,
-    status: str | None = None,
-    reviewer: str | None = None,
-    limit: int = 50,
-    principal: dict = Depends(require_viewer),
-):
-    """List review tasks with optional filters."""
-    tenant = principal.get("tenant") or tenant_id
-    tasks = event_log.list_review_tasks(
-        intent_id=intent_id, status=status,
-        reviewer=reviewer, tenant_id=tenant, limit=limit,
-    )
-    return {"reviews": [t.to_dict() for t in tasks], "total": len(tasks)}
-
-
-@router.get("/reviews/summary")
-def reviews_summary_http(
-    request: Request,
-    tenant_id: str | None = None,
-    principal: dict = Depends(require_viewer),
-):
-    """Review task summary for dashboard."""
-    from converge import reviews
-    tenant = principal.get("tenant") or tenant_id
-    return reviews.review_summary(tenant_id=tenant)
-
-
 @router.get("/semantic/conflicts")
 def semantic_conflicts_http(
     request: Request,

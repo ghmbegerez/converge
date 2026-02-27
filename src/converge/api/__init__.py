@@ -21,11 +21,13 @@ from converge.api.routers import (
     agents,
     compliance,
     dashboard,
+    demo,
     events,
     health,
     intake,
     intents,
     queue,
+    reviews,
     risk,
     security,
     webhooks,
@@ -135,6 +137,8 @@ def create_app(
     api.include_router(events.router)
     api.include_router(intake.router)
     api.include_router(security.router)
+    api.include_router(reviews.router)
+    api.include_router(demo.router)
     api.include_router(dashboard.router)
 
     app.include_router(api, prefix="/api")

@@ -66,3 +66,32 @@ class ComplianceThresholdsBody(BaseModel):
 
 class KeyRotateBody(BaseModel):
     grace_period_seconds: int = Field(default=3600, ge=60, le=86400)
+
+
+# ---------------------------------------------------------------------------
+# Reviews
+# ---------------------------------------------------------------------------
+
+class ReviewRequestBody(BaseModel):
+    intent_id: str = Field(..., min_length=1)
+    trigger: str = "policy"
+    reviewer: str | None = None
+    priority: int | None = None
+    tenant_id: str | None = None
+
+
+class ReviewAssignBody(BaseModel):
+    reviewer: str = Field(..., min_length=1)
+
+
+class ReviewCompleteBody(BaseModel):
+    resolution: str = "approved"
+    notes: str = ""
+
+
+class ReviewCancelBody(BaseModel):
+    reason: str = ""
+
+
+class ReviewEscalateBody(BaseModel):
+    reason: str = "sla_breach"

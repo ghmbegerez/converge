@@ -39,6 +39,20 @@ def get_intent(
     return result
 
 
+@router.get("/intents/{intent_id}/events")
+def intent_events(
+    intent_id: str,
+    request: Request,
+    limit: int = 200,
+    principal: dict = Depends(require_viewer),
+):
+    """Return the event timeline for a single intent, ordered by timestamp."""
+    intent = event_log.get_intent(intent_id)
+    if intent is None:
+        raise HTTPException(status_code=404, detail="Intent not found")
+    return event_log.query(intent_id=intent_id, limit=limit)
+
+
 @router.get("/summary")
 def summary(
     request: Request,
