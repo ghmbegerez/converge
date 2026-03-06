@@ -7,6 +7,43 @@ on:
     branches: [master, main]
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install ruff
+        run: pip install ruff
+
+      - name: Lint
+        run: ruff check src/ tests/
+
+      - name: Format check
+        run: ruff format --check src/ tests/
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          pip install -e .
+          pip install pip-audit
+
+      - name: Audit Python dependencies
+        run: pip-audit
+
   test:
     runs-on: ubuntu-latest
     strategy:
@@ -25,11 +62,32 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -e .
-          pip install pytest
+          pip install pytest pytest-cov
 
-      - name: Run tests
+      - name: Run tests with coverage
         run: |
           python -m pytest tests/ \
             --ignore=tests/test_integration_live.py \
             --ignore=tests/test_postgres.py \
-            -v --tb=short
+            -v --tb=short \
+            --cov=converge --cov-report=term-missing --cov-report=xml
+
+      - name: Coverage summary
+        if: always()
+        run: |
+          if [ -f coverage.xml ]; then
+            python -c "
+          import xml.etree.ElementTree as ET
+          tree = ET.parse('coverage.xml')
+          root = tree.getroot()
+          rate = float(root.attrib.get('line-rate', 0)) * 100
+          print(f'Coverage: {rate:.1f}%')
+          "
+          fi
+
+      - name: Verify lock file is up-to-date
+        run: |
+          pip install pip-tools
+          pip-compile --strip-extras --output-file=/tmp/requirements.check pyproject.toml
+          diff -q requirements.lock /tmp/requirements.check || \
+            echo "::warning::requirements.lock is out of date — run: pip-compile --strip-extras -o requirements.lock pyproject.toml"
