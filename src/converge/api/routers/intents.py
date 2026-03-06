@@ -6,9 +6,11 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
-from converge import event_log, projections
-from converge.api.auth import require_admin, require_viewer, rotate_key
+from converge import engine, event_log, projections
+from converge.api.auth import require_admin, require_operator, require_viewer, rotate_key
 from converge.api.schemas import KeyRotateBody
+from converge.intake import evaluate_intake
+from converge.models import Event, EventType, Intent, RiskLevel, Status, new_id, now_iso
 
 router = APIRouter(tags=["intents"])
 
@@ -92,6 +94,93 @@ def evaluate_intent_pre(
     cfg = harness.HarnessConfig(mode=mode)
     result = harness.evaluate_intent(body, config=cfg)
     return result.to_dict()
+
+
+@router.post("/intents")
+def create_intent(
+    request: Request,
+    body: dict[str, Any],
+    principal: dict = Depends(require_operator),
+):
+    """Create a new intent."""
+    tenant = body.get("tenant_id") or principal.get("tenant")
+
+    # Support both flat and nested field formats
+    source = body.get("source") or body.get("technical", {}).get("source_ref", "")
+    target = body.get("target") or body.get("technical", {}).get("target_ref", "main")
+
+    if not source:
+        raise HTTPException(status_code=400, detail="source is required")
+
+    intent_id = body.get("id") or body.get("intent_id") or f"api-{new_id()}"
+
+    intent = Intent(
+        id=intent_id,
+        source=source,
+        target=target,
+        status=Status(body.get("status", "READY")),
+        created_at=now_iso(),
+        created_by=principal.get("actor", "api"),
+        risk_level=RiskLevel(body.get("risk_level", "medium")),
+        priority=body.get("priority", 3),
+        semantic=body.get("semantic", {}),
+        technical=body.get("technical", {}),
+        checks_required=body.get("checks_required", []),
+        dependencies=body.get("dependencies", []),
+        tenant_id=tenant,
+        plan_id=body.get("plan_id"),
+        origin_type=body.get("origin_type", "api"),
+    )
+
+    # Intake pre-check (system health evaluation)
+    decision = evaluate_intake(intent)
+    if not decision.accepted:
+        return {
+            "ok": False,
+            "intent_id": intent.id,
+            "rejected_by": "intake",
+            "mode": decision.mode.value,
+            "reason": decision.reason,
+        }
+
+    event_log.upsert_intent(intent)
+    event_log.append(Event(
+        event_type=EventType.INTENT_CREATED,
+        intent_id=intent.id,
+        tenant_id=intent.tenant_id,
+        payload=intent.to_dict(),
+    ))
+    return {"ok": True, "intent_id": intent.id, "status": intent.status.value}
+
+
+@router.post("/intents/{intent_id}/validate")
+def validate_intent_http(
+    intent_id: str,
+    request: Request,
+    body: dict[str, Any] | None = None,
+    principal: dict = Depends(require_operator),
+):
+    """Run full validation: simulate + check + policy + risk."""
+    intent = event_log.get_intent(intent_id)
+    if intent is None:
+        raise HTTPException(status_code=404, detail="Intent not found")
+
+    body = body or {}
+    modified = False
+    if body.get("source"):
+        intent.source = body["source"]
+        modified = True
+    if body.get("target"):
+        intent.target = body["target"]
+        modified = True
+    if modified:
+        event_log.upsert_intent(intent)
+
+    return engine.validate_intent(
+        intent,
+        use_last_simulation=body.get("use_last_simulation", False),
+        skip_checks=body.get("skip_checks", False),
+    )
 
 
 @router.get("/flags")
