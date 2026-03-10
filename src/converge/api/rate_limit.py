@@ -98,6 +98,6 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         if not limiter.is_allowed(tenant):
             return JSONResponse(
                 status_code=429,
-                content={"error": f"Rate limit exceeded ({limiter.rpm} requests/min)"},
+                content={"error": {"code": "rate_limit_exceeded", "message": f"Rate limit exceeded ({limiter.rpm} requests/min)"}},
             )
         return await call_next(request)

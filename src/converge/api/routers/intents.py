@@ -8,7 +8,12 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 
 from converge import engine, event_log, projections
 from converge.api.auth import require_admin, require_operator, require_viewer, rotate_key
-from converge.api.schemas import KeyRotateBody
+from converge.api.schemas import (
+    IntentCreateRequest,
+    IntentEvaluateRequest,
+    IntentValidateRequest,
+    KeyRotateBody,
+)
 from converge.intake import evaluate_intake
 from converge.models import Event, EventType, Intent, RiskLevel, Status, new_id, now_iso
 
@@ -85,63 +90,65 @@ def predictions(
 @router.post("/intents/evaluate")
 def evaluate_intent_pre(
     request: Request,
-    body: dict[str, Any],
+    body: IntentEvaluateRequest,
     principal: dict = Depends(require_viewer),
 ):
     """Pre-evaluate a draft intent before creation."""
     from converge import harness
-    mode = body.pop("mode", "shadow")
+    body_dict = body.model_dump(exclude_unset=True)
+    mode = body_dict.pop("mode", "shadow")
     cfg = harness.HarnessConfig(mode=mode)
-    result = harness.evaluate_intent(body, config=cfg)
+    result = harness.evaluate_intent(body_dict, config=cfg)
     return result.to_dict()
 
 
 @router.post("/intents")
 def create_intent(
     request: Request,
-    body: dict[str, Any],
+    body: IntentCreateRequest,
     principal: dict = Depends(require_operator),
 ):
     """Create a new intent."""
-    tenant = body.get("tenant_id") or principal.get("tenant")
+    tenant = body.tenant_id or principal.get("tenant")
 
-    # Support both flat and nested field formats
-    source = body.get("source") or body.get("technical", {}).get("source_ref", "")
-    target = body.get("target") or body.get("technical", {}).get("target_ref", "main")
+    source = body.source
+    target = body.target
 
     if not source:
         raise HTTPException(status_code=400, detail="source is required")
 
-    intent_id = body.get("id") or body.get("intent_id") or f"api-{new_id()}"
+    intent_id = body.id or body.intent_id or f"api-{new_id()}"
 
     intent = Intent(
         id=intent_id,
         source=source,
         target=target,
-        status=Status(body.get("status", "READY")),
+        status=Status(body.status),
         created_at=now_iso(),
         created_by=principal.get("actor", "api"),
-        risk_level=RiskLevel(body.get("risk_level", "medium")),
-        priority=body.get("priority", 3),
-        semantic=body.get("semantic", {}),
-        technical=body.get("technical", {}),
-        checks_required=body.get("checks_required", []),
-        dependencies=body.get("dependencies", []),
+        risk_level=RiskLevel(body.risk_level),
+        priority=body.priority,
+        semantic=body.semantic,
+        technical=body.technical,
+        checks_required=body.checks_required,
+        dependencies=body.dependencies,
         tenant_id=tenant,
-        plan_id=body.get("plan_id"),
-        origin_type=body.get("origin_type", "api"),
+        plan_id=body.plan_id,
+        origin_type=body.origin_type,
     )
 
     # Intake pre-check (system health evaluation)
     decision = evaluate_intake(intent)
     if not decision.accepted:
-        return {
-            "ok": False,
-            "intent_id": intent.id,
-            "rejected_by": "intake",
-            "mode": decision.mode.value,
-            "reason": decision.reason,
-        }
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "intake_rejected",
+                "message": decision.reason,
+                "intent_id": intent.id,
+                "mode": decision.mode.value,
+            },
+        )
 
     event_log.upsert_intent(intent)
     event_log.append(Event(
@@ -157,7 +164,7 @@ def create_intent(
 def validate_intent_http(
     intent_id: str,
     request: Request,
-    body: dict[str, Any] | None = None,
+    body: IntentValidateRequest | None = None,
     principal: dict = Depends(require_operator),
 ):
     """Run full validation: simulate + check + policy + risk."""
@@ -165,21 +172,21 @@ def validate_intent_http(
     if intent is None:
         raise HTTPException(status_code=404, detail="Intent not found")
 
-    body = body or {}
+    body = body or IntentValidateRequest()
     modified = False
-    if body.get("source"):
-        intent.source = body["source"]
+    if body.source:
+        intent.source = body.source
         modified = True
-    if body.get("target"):
-        intent.target = body["target"]
+    if body.target:
+        intent.target = body.target
         modified = True
     if modified:
         event_log.upsert_intent(intent)
 
     return engine.validate_intent(
         intent,
-        use_last_simulation=body.get("use_last_simulation", False),
-        skip_checks=body.get("skip_checks", False),
+        use_last_simulation=body.use_last_simulation,
+        skip_checks=body.skip_checks,
     )
 
 

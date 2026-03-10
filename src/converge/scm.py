@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 import shutil
 import subprocess
@@ -9,6 +10,8 @@ import tempfile
 from pathlib import Path
 
 from converge.models import Simulation, now_iso
+
+log = logging.getLogger("converge.scm")
 
 
 def run(cmd: list[str], cwd: str | Path | None = None, check: bool = True) -> subprocess.CompletedProcess:
@@ -111,13 +114,13 @@ def execute_merge_safe(source: str, target: str, cwd: str | Path | None = None) 
         # Always clean up the worktree
         try:
             git("worktree", "remove", "--force", worktree_dir, cwd=root)
-        except Exception:
-            # Fallback: remove the directory directly
+        except subprocess.CalledProcessError:
+            log.warning("Worktree remove failed for %s, falling back to rmtree", worktree_dir)
             shutil.rmtree(worktree_dir, ignore_errors=True)
             try:
                 git("worktree", "prune", cwd=root)
-            except Exception:
-                pass
+            except subprocess.CalledProcessError:
+                log.warning("Worktree prune failed after cleanup of %s", worktree_dir)
 
 
 def current_head(cwd: str | Path | None = None) -> str:

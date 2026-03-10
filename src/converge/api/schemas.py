@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 # ---------------------------------------------------------------------------
@@ -95,3 +95,57 @@ class ReviewCancelBody(BaseModel):
 
 class ReviewEscalateBody(BaseModel):
     reason: str = "sla_breach"
+
+
+# ---------------------------------------------------------------------------
+# Intents
+# ---------------------------------------------------------------------------
+
+class IntentCreateRequest(BaseModel):
+    """Body for POST /intents."""
+    source: str = Field(default="", description="Source branch ref")
+    target: str = Field(default="main", description="Target branch ref")
+    id: str | None = Field(default=None, description="Optional intent ID")
+    intent_id: str | None = None
+    status: str = "READY"
+    risk_level: str = "medium"
+    priority: int = 3
+    semantic: dict = Field(default_factory=dict)
+    technical: dict = Field(default_factory=dict)
+    checks_required: list[str] = Field(default_factory=list)
+    dependencies: list[str] = Field(default_factory=list)
+    tenant_id: str | None = None
+    plan_id: str | None = None
+    origin_type: str = "api"
+
+    model_config = {"extra": "allow"}
+
+    @model_validator(mode="before")
+    @classmethod
+    def _extract_nested_fields(cls, values: dict) -> dict:
+        """Support legacy nested format: technical.source_ref / technical.target_ref."""
+        if isinstance(values, dict):
+            technical = values.get("technical", {})
+            if isinstance(technical, dict):
+                if not values.get("source"):
+                    values["source"] = technical.get("source_ref", "")
+                if not values.get("target"):
+                    values["target"] = technical.get("target_ref", "main")
+        return values
+
+
+class IntentEvaluateRequest(BaseModel):
+    """Body for POST /intents/evaluate."""
+    mode: str = "shadow"
+
+    model_config = {"extra": "allow"}
+
+
+class IntentValidateRequest(BaseModel):
+    """Body for POST /intents/{id}/validate."""
+    source: str | None = None
+    target: str | None = None
+    use_last_simulation: bool = False
+    skip_checks: bool = False
+
+    model_config = {"extra": "allow"}

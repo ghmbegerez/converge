@@ -100,4 +100,4 @@ async def try_publish_decision(
                 },
             ))
         except Exception:
-            log.warning("Failed to record publish failure event for %s", intent_id)
+            log.warning("Failed to record publish failure event for %s", intent_id, exc_info=True)

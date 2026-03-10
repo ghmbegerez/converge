@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 import networkx as nx
 
 from converge.models import Intent, Simulation
+
+log = logging.getLogger("converge.risk.bombs")
 
 # --- Cascade detection thresholds ---
 _CASCADE_PR_FACTOR = 1.5        # PageRank threshold = factor / max(len(G), 1)
@@ -104,8 +107,8 @@ def _detect_spiral(
                 "message": f"{len(significant_cycles)} circular dependency cycle(s) detected",
                 "cycles": [c[:_CYCLE_NODE_LIMIT] for c in significant_cycles[:_CYCLE_DISPLAY_LIMIT]],
             })
-    except Exception:  # noqa: BLE001 — cap cycle enumeration on any graph error
-        pass
+    except (nx.NetworkXError, nx.NetworkXUnfeasible, ValueError) as exc:  # noqa: BLE001
+        log.debug("Spiral detection aborted on graph error: %s", exc)
 
 
 def _detect_thermal_death(

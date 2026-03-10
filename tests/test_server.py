@@ -118,7 +118,9 @@ class TestHTTPEndpoints:
             except HTTPError as e:
                 assert e.code == 400
                 body = json.loads(e.read())
-                assert "agent_id" in body["error"]
+                err = body["error"]
+                msg = err["message"] if isinstance(err, dict) else err
+                assert "agent_id" in msg
 
     def test_post_agent_authorize_missing_fields(self, live_server):
         with patch.dict(os.environ, {"CONVERGE_AUTH_REQUIRED": "0"}):
@@ -134,7 +136,9 @@ class TestHTTPEndpoints:
             except HTTPError as e:
                 assert e.code == 400
                 body = json.loads(e.read())
-                assert "action" in body["error"] or "intent_id" in body["error"]
+                err = body["error"]
+                msg = err["message"] if isinstance(err, dict) else err
+                assert "action" in msg or "intent_id" in msg
 
     def test_post_invalid_json(self, live_server):
         with patch.dict(os.environ, {"CONVERGE_AUTH_REQUIRED": "0"}):
@@ -322,7 +326,9 @@ class TestWebhook:
             except HTTPError as e:
                 assert e.code == 403
                 body = json.loads(e.read())
-                assert "not configured" in body["error"]
+                err = body["error"]
+                msg = err["message"] if isinstance(err, dict) else err
+                assert "not configured" in msg
 
 
 @pytest.mark.integration

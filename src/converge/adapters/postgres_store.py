@@ -47,8 +47,11 @@ class PostgresStore(BaseConvergeStore):
             for migration in _MIGRATIONS:
                 try:
                     conn.execute(migration)
+                except (psycopg.errors.DuplicateTable, psycopg.errors.DuplicateColumn):
+                    conn.rollback()  # clear the failed transaction
                 except Exception:
-                    pass  # column/table already exists
+                    conn.rollback()
+                    _log.error("Migration failed: %s", migration[:120], exc_info=True)
             conn.commit()
 
     @property

@@ -68,7 +68,8 @@ class WebhookNotifyAdapter:
                         },
                     ))
                     return True
-            except Exception:
+            except Exception as exc:
+                log.warning("Webhook attempt %d failed for %s: %s", attempt + 1, url, exc)
                 if attempt == 0:
                     time.sleep(1)
 

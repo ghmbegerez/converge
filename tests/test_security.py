@@ -236,7 +236,9 @@ class TestScopeEnforcementHTTP:
             except HTTPError as e:
                 assert e.code == 403
                 body = json.loads(e.read())
-                assert "scope" in body["error"].lower()
+                err = body["error"]
+                msg = err["message"] if isinstance(err, dict) else err
+                assert "scope" in msg.lower()
 
     def test_correct_scope_allowed(self, live_server):
         """Key with matching scope is allowed."""

@@ -11,6 +11,7 @@ Mode is auto-computed from health signals or manually overridden via API/CLI.
 from __future__ import annotations
 
 import hashlib
+import logging
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
@@ -24,9 +25,10 @@ from converge.defaults import (
     ROLLOUT_HASH_CHARS,
 )
 from converge.event_payloads import IntakePayload
+from converge.event_types import EventType
 from converge.models import Event, Intent, RiskLevel, now_iso
 
-from converge.event_types import EventType
+log = logging.getLogger("converge.intake")
 
 
 # ---------------------------------------------------------------------------
@@ -302,4 +304,5 @@ def _load_intake_config() -> dict[str, Any]:
         # intake section is an optional extension of the policy config file
         return getattr(policy_cfg, "intake", None) or DEFAULT_INTAKE_CONFIG
     except Exception:
+        log.warning("Failed to load intake config, using defaults", exc_info=True)
         return dict(DEFAULT_INTAKE_CONFIG)

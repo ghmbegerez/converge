@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import PurePosixPath
 
 import networkx as nx
 
 from converge.models import Intent, Simulation
 from converge.risk._constants import _CORE_PATHS, _CORE_TARGETS, _RISK_BONUS
+
+log = logging.getLogger("converge.risk.signals")
 
 # --- Entropic load weights ---
 _EL_FILES = 2.0
@@ -195,8 +198,8 @@ def compute_path_dependence(
                     cycle_count += 1
                 if cycle_count >= _PD_CYCLE_CAP:
                     break
-    except Exception:  # noqa: BLE001 — cap cycle enumeration on any graph error
-        pass
+    except (nx.NetworkXError, nx.NetworkXUnfeasible, ValueError) as exc:  # noqa: BLE001
+        log.debug("Cycle enumeration aborted on graph error: %s", exc)
 
     # Longest path in DAG (if acyclic)
     try:
@@ -204,7 +207,8 @@ def compute_path_dependence(
             longest = nx.dag_longest_path_length(G)
         else:
             longest = 0
-    except Exception:  # noqa: BLE001 — degenerate graph fallback
+    except (nx.NetworkXError, nx.NetworkXUnfeasible, ValueError) as exc:  # noqa: BLE001
+        log.debug("Longest path computation failed: %s", exc)
         longest = 0
 
     raw = (
