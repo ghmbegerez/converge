@@ -4,3 +4,7 @@ __pycache__/
 .converge/
 .pytest_cache/
 *.db
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/

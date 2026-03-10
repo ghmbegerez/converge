@@ -8,20 +8,20 @@ version = "0.1.0"
 description = "Code entropy control through semantic merge coordination"
 requires-python = ">=3.12"
 dependencies = [
-    "networkx>=3.0",
-    "fastapi>=0.115.0",
-    "uvicorn>=0.30.0",
-    "httpx>=0.25.0",
-    "PyJWT[crypto]>=2.8.0",
+    "networkx>=3.0,<4",
+    "fastapi>=0.115.0,<1",
+    "uvicorn>=0.30.0,<1",
+    "httpx>=0.25.0,<1",
+    "PyJWT[crypto]>=2.8.0,<3",
 ]
 
 [project.optional-dependencies]
 postgres = [
-    "psycopg[binary]>=3.1.0",
-    "psycopg_pool>=3.2.0",
+    "psycopg[binary]>=3.1.0,<4",
+    "psycopg_pool>=3.2.0,<4",
 ]
-semantic = ["sentence-transformers>=2.2.0"]
-llm = ["anthropic>=0.20.0", "openai>=1.10.0"]
+semantic = ["sentence-transformers>=2.2.0,<4"]
+llm = ["anthropic>=0.20.0,<1", "openai>=1.10.0,<2"]
 
 [project.scripts]
 converge = "converge.cli:main"
