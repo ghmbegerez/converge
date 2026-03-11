@@ -11,6 +11,8 @@ comment explaining why.
 
 from __future__ import annotations
 
+import os
+
 
 # ---------------------------------------------------------------------------
 # Query limits
@@ -25,9 +27,9 @@ QUERY_LIMIT_UNBOUNDED = 100_000  # audit chain, full reindex
 # Queue processing
 # ---------------------------------------------------------------------------
 
-MAX_RETRIES = 3
+MAX_RETRIES = int(os.environ.get("CONVERGE_MAX_RETRIES", "3"))
 DEFAULT_TARGET_BRANCH = "main"
-QUEUE_LOCK_TTL_SECONDS = 300
+QUEUE_LOCK_TTL_SECONDS = int(os.environ.get("CONVERGE_QUEUE_LOCK_TTL", "300"))
 
 # ---------------------------------------------------------------------------
 # Rollout hashing (deterministic bucketing for gradual enforcement)
@@ -40,8 +42,8 @@ ROLLOUT_DIVISOR = 0xFFFF_FFFF
 # Check execution
 # ---------------------------------------------------------------------------
 
-CHECK_TIMEOUT_SECONDS = 300
-CHECK_OUTPUT_LIMIT = 2000
+CHECK_TIMEOUT_SECONDS = int(os.environ.get("CONVERGE_CHECK_TIMEOUT", "300"))
+CHECK_OUTPUT_LIMIT = int(os.environ.get("CONVERGE_CHECK_OUTPUT_LIMIT", "2000"))
 CONFLICT_DISPLAY_LIMIT = 5
 
 # ---------------------------------------------------------------------------
@@ -145,3 +147,19 @@ RISK_GATE_CHECKS: list[tuple[str, str, float]] = [
     ("damage_score", "max_damage_score", MAX_DAMAGE_SCORE),
     ("propagation_score", "max_propagation_score", MAX_PROPAGATION_SCORE),
 ]
+
+# ---------------------------------------------------------------------------
+# Shell command validation (shared by coherence + security adapters)
+# ---------------------------------------------------------------------------
+
+SHELL_INJECTION_PATTERNS: frozenset[str] = frozenset({";", "&&", "||", "$(", "`", "|&"})
+
+
+def validate_shell_command(cmd: str) -> None:
+    """Reject commands containing shell injection patterns.
+
+    Raises ValueError if *cmd* contains a disallowed pattern.
+    """
+    for pattern in SHELL_INJECTION_PATTERNS:
+        if pattern in cmd:
+            raise ValueError(f"Shell command contains disallowed pattern '{pattern}': {cmd}")

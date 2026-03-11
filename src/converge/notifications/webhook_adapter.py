@@ -31,7 +31,7 @@ class WebhookNotifyAdapter:
                     data = json.loads(p.read_text())
                     return data.get("webhooks", {})
                 except (json.JSONDecodeError, IOError):
-                    pass
+                    log.warning("Failed to load webhook config: %s", p)
         url = os.environ.get("CONVERGE_WEBHOOK_URL", "")
         return {"default": url} if url else {}
 

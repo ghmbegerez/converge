@@ -12,6 +12,7 @@ import logging
 import subprocess
 from typing import Any
 
+from converge.defaults import validate_shell_command
 from converge.models import FindingCategory, FindingSeverity, SecurityFinding, new_id
 
 log = logging.getLogger(__name__)
@@ -28,9 +29,10 @@ class ShellScanner:
 
     def scan(self, path: str, **options: Any) -> list[SecurityFinding]:
         cmd = options.get("command", self._command)
+        validate_shell_command(cmd)
         try:
             result = subprocess.run(
-                cmd, shell=True, capture_output=True, text=True,
+                ["/bin/sh", "-c", cmd], capture_output=True, text=True,
                 timeout=options.get("timeout", 120),
                 cwd=path,
             )

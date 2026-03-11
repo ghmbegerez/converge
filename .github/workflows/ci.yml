@@ -55,7 +55,6 @@ jobs:
 
       - name: SAST scan (bandit)
         run: bandit -r src/converge/ -ll -ii
-        continue-on-error: true
 
   test:
     runs-on: ubuntu-latest

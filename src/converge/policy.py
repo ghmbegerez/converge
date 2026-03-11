@@ -97,10 +97,32 @@ def load_config(config_path: str | Path | None = None) -> PolicyConfig:
                 origin_overrides = data["origin_overrides"]
             break
 
-    return PolicyConfig(
+    config = PolicyConfig(
         profiles=profiles, queue=queue, risk=risk,
         origin_overrides=origin_overrides,
     )
+    _validate_policy(config)
+    return config
+
+
+def _validate_policy(config: PolicyConfig) -> None:
+    """Validate policy config ranges and cross-profile monotonicity."""
+    for name, profile in config.profiles.items():
+        eb = profile.get("entropy_budget")
+        if eb is not None and eb < 0:
+            raise ValueError(f"Profile '{name}': entropy_budget must be >= 0, got {eb}")
+        cm = profile.get("containment_min")
+        if cm is not None and not (0.0 <= cm <= 1.0):
+            raise ValueError(f"Profile '{name}': containment_min must be in [0.0, 1.0], got {cm}")
+        bl = profile.get("blast_limit")
+        if bl is not None and bl < 0:
+            raise ValueError(f"Profile '{name}': blast_limit must be >= 0, got {bl}")
+        cw = profile.get("coherence_warn")
+        cp = profile.get("coherence_pass")
+        if cw is not None and cp is not None and cw > cp:
+            raise ValueError(
+                f"Profile '{name}': coherence_warn ({cw}) must be <= coherence_pass ({cp})"
+            )
 
 
 # ---------------------------------------------------------------------------

@@ -11,12 +11,17 @@ medium=10). Score = 100 - points_lost, clamped to [0, 100].
 from __future__ import annotations
 
 import json
+import logging
+import os
 import subprocess
 from pathlib import Path
 from typing import Any
 
 from converge import event_log
-from converge.defaults import COHERENCE_PASS_THRESHOLD, COHERENCE_WARN_THRESHOLD
+
+log = logging.getLogger(__name__)
+
+from converge.defaults import COHERENCE_PASS_THRESHOLD, COHERENCE_WARN_THRESHOLD, validate_shell_command
 from converge.models import (
     CoherenceEvaluation,
     CoherenceQuestion,
@@ -28,7 +33,7 @@ from converge.models import (
 )
 
 HARNESS_CONFIG_PATH = ".converge/coherence_harness.json"
-QUESTION_TIMEOUT_SECONDS = 60
+QUESTION_TIMEOUT_SECONDS = int(os.environ.get("CONVERGE_QUESTION_TIMEOUT", "60"))
 
 SEVERITY_WEIGHTS: dict[str, int] = {
     "critical": 30,
@@ -78,7 +83,7 @@ HARNESS_TEMPLATE: dict[str, Any] = {
         {
             "id": "q-test-ratio",
             "question": "Is the test-to-source ratio adequate?",
-            "check": "echo $(( $(find tests/ -name 'test_*.py' | wc -l) * 100 / $(find src/ -name '*.py' | wc -l) ))",
+            "check": "python3 -c \"import pathlib; t=len(list(pathlib.Path('tests').rglob('test_*.py'))); s=len(list(pathlib.Path('src').rglob('*.py'))); print(t*100//s if s else 0)\"",
             "assertion": "result >= baseline",
             "severity": "medium",
             "category": "structural",
@@ -157,6 +162,11 @@ def update_baselines(results: list[CoherenceResult]) -> dict[str, float]:
 # Run a single question
 # ---------------------------------------------------------------------------
 
+def _validate_check_command(cmd: str) -> None:
+    """Reject check commands containing shell injection patterns."""
+    validate_shell_command(cmd)
+
+
 def run_question(
     q: CoherenceQuestion,
     workdir: str | Path | None = None,
@@ -166,11 +176,24 @@ def run_question(
     cwd = str(workdir) if workdir else None
     baselines = baselines or {}
 
+    # Validate command before execution
+    try:
+        _validate_check_command(q.check)
+    except ValueError as exc:
+        return CoherenceResult(
+            question_id=q.id,
+            question=q.question,
+            verdict="fail",
+            value=0.0,
+            baseline=None,
+            assertion=q.assertion,
+            error=str(exc),
+        )
+
     # Run the check command
     try:
         proc = subprocess.run(
-            q.check,
-            shell=True,
+            ["/bin/sh", "-c", q.check],
             cwd=cwd,
             capture_output=True,
             text=True,

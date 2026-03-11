@@ -36,7 +36,7 @@ class JsonFormatter(logging.Formatter):
         if record.exc_info and record.exc_info[0] is not None:
             log_dict["exception"] = self.formatException(record.exc_info)
         # Propagate extra fields (trace_id, etc.)
-        for key in ("trace_id", "intent_id", "tenant_id", "method", "path", "status_code", "duration_ms"):
+        for key in ("trace_id", "intent_id", "tenant_id", "step", "risk_score", "method", "path", "status_code", "duration_ms"):
             val = getattr(record, key, None)
             if val is not None:
                 log_dict[key] = val

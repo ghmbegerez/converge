@@ -8,12 +8,15 @@ state for backward compatibility. Override via environment variables
 from __future__ import annotations
 
 import json
+import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from converge import event_log
+
+log = logging.getLogger(__name__)
 from converge.event_types import EventType
 from converge.models import Event
 
@@ -120,7 +123,7 @@ def _load_flags() -> None:
                             _flags[name].mode = cfg.get("mode", _flags[name].mode)
                         _flags[name].source = "config"
             except (json.JSONDecodeError, IOError):
-                pass
+                log.warning("Failed to load flags config: %s", p)
             break
 
     # 3. Override from environment (highest priority)
@@ -151,7 +154,10 @@ def is_enabled(flag_name: str) -> bool:
     """Check if a feature flag is enabled."""
     _ensure_loaded()
     state = _flags.get(flag_name)
-    return state.enabled if state else True  # unknown flags default to enabled
+    if state is None:
+        log.warning("Unknown feature flag requested: %s — defaulting to disabled", flag_name)
+        return False
+    return state.enabled
 
 
 def get_mode(flag_name: str) -> str:

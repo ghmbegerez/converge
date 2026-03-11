@@ -835,3 +835,55 @@ class TestCompoundAssertions:
     def test_case_insensitive(self):
         assert coherence._evaluate_assertion("result >= 0 and result <= 100", 50.0, None) is True
         assert coherence._evaluate_assertion("result == 0 or result >= 10", 0.0, None) is True
+
+
+# ---------------------------------------------------------------------------
+# Shell injection validation
+# ---------------------------------------------------------------------------
+
+class TestCheckCommandValidation:
+    def test_rejects_semicolon(self):
+        """Commands with ';' are rejected."""
+        with pytest.raises(ValueError, match="disallowed pattern"):
+            coherence._validate_check_command("echo 1; rm -rf /")
+
+    def test_rejects_and_chain(self):
+        """Commands with '&&' are rejected."""
+        with pytest.raises(ValueError, match="disallowed pattern"):
+            coherence._validate_check_command("echo 1 && rm -rf /")
+
+    def test_rejects_or_chain(self):
+        """Commands with '||' are rejected."""
+        with pytest.raises(ValueError, match="disallowed pattern"):
+            coherence._validate_check_command("echo 1 || true")
+
+    def test_rejects_command_substitution(self):
+        """Commands with '$(' are rejected."""
+        with pytest.raises(ValueError, match="disallowed pattern"):
+            coherence._validate_check_command("echo $(whoami)")
+
+    def test_rejects_backtick_substitution(self):
+        """Commands with backticks are rejected."""
+        with pytest.raises(ValueError, match="disallowed pattern"):
+            coherence._validate_check_command("echo `whoami`")
+
+    def test_allows_pipe(self):
+        """Pipes are allowed (needed for find | wc -l patterns)."""
+        coherence._validate_check_command("find tests/ -name 'test_*.py' | wc -l")
+
+    def test_allows_redirect(self):
+        """Simple redirects are allowed."""
+        coherence._validate_check_command("echo 5")
+
+    def test_run_question_rejects_injection(self):
+        """run_question raises ValueError for injection attempts."""
+        q = CoherenceQuestion(
+            id="q-inject",
+            question="Injection attempt",
+            check="echo 1; rm -rf /",
+            assertion="result == 1",
+            severity="high",
+        )
+        result = coherence.run_question(q)
+        assert result.verdict == "fail"
+        assert "disallowed pattern" in result.error

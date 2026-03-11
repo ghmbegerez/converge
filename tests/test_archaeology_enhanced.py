@@ -7,6 +7,7 @@ from unittest.mock import patch
 from conftest import make_intent
 
 from converge import analytics, event_log
+from converge.analytics import archaeology as arch_mod
 from converge.models import Intent, RiskLevel, Status
 
 
@@ -22,7 +23,7 @@ class TestCouplingProvenance:
         snapshot_path.parent.mkdir(parents=True)
         snapshot_path.write_text(json.dumps(snapshot))
 
-        with patch.object(analytics, "_SNAPSHOT_PATH", snapshot_path):
+        with patch.object(arch_mod, "_SNAPSHOT_PATH", snapshot_path):
             coupling = analytics.load_coupling_data()
 
         assert len(coupling) == 1
@@ -34,8 +35,9 @@ class TestCouplingProvenance:
             {"author": "dev", "files": ["a.py", "b.py"]},
             {"author": "dev", "files": ["a.py", "b.py"]},
         ]
-        with patch.object(analytics, "_load_snapshot", return_value=None), \
-             patch.object(analytics.scm, "log_entries", return_value=entries):
+        with patch.object(arch_mod, "_load_snapshot", return_value=None), \
+             patch("converge.analytics.archaeology.scm") as mock_scm:
+            mock_scm.log_entries.return_value = entries
             coupling = analytics.load_coupling_data()
 
         assert len(coupling) >= 1
@@ -62,7 +64,7 @@ class TestLinkEnrichedCoupling:
         snapshot_path.parent.mkdir(parents=True)
         snapshot_path.write_text(json.dumps(snapshot))
 
-        with patch.object(analytics, "_SNAPSHOT_PATH", snapshot_path):
+        with patch.object(arch_mod, "_SNAPSHOT_PATH", snapshot_path):
             coupling = analytics.load_coupling_data()
 
         # Should have both snapshot coupling and link-derived coupling
@@ -79,7 +81,7 @@ class TestLinkEnrichedCoupling:
         snapshot_path.parent.mkdir(parents=True)
         snapshot_path.write_text(json.dumps(snapshot))
 
-        with patch.object(analytics, "_SNAPSHOT_PATH", snapshot_path):
+        with patch.object(arch_mod, "_SNAPSHOT_PATH", snapshot_path):
             coupling = analytics.load_coupling_data()
 
         assert len(coupling) == 1
@@ -91,8 +93,9 @@ class TestLinkEnrichedCoupling:
         event_log.upsert_commit_link("lc-003", "org/repo", "ccc", "head")
         event_log.upsert_commit_link("lc-004", "org/repo", "ddd", "head")
 
-        with patch.object(analytics, "_load_snapshot", return_value=None), \
-             patch.object(analytics.scm, "log_entries", return_value=[]):
+        with patch.object(arch_mod, "_load_snapshot", return_value=None), \
+             patch("converge.analytics.archaeology.scm") as mock_scm:
+            mock_scm.log_entries.return_value = []
             coupling = analytics.load_coupling_data()
 
         # Only link-based coupling (git log returned nothing)
@@ -110,7 +113,8 @@ class TestSnapshotRefresh:
         ] * 10  # enough data for valid snapshot
         output = tmp_path / "snapshot.json"
 
-        with patch.object(analytics.scm, "log_entries", return_value=entries):
+        with patch("converge.analytics.archaeology.scm") as mock_scm:
+            mock_scm.log_entries.return_value = entries
             result = analytics.refresh_snapshot(output_path=str(output))
 
         assert result["valid"] is True
@@ -120,13 +124,14 @@ class TestSnapshotRefresh:
         assert output.exists()
 
     def test_refresh_no_history_invalid(self, db_path):
-        with patch.object(analytics.scm, "log_entries", return_value=[]):
+        with patch("converge.analytics.archaeology.scm") as mock_scm:
+            mock_scm.log_entries.return_value = []
             result = analytics.refresh_snapshot()
 
         assert result["valid"] is False
 
     def test_validate_snapshot_detects_issues(self, db_path):
         report = {"commits_analyzed": 0, "hotspots": [], "coupling": [], "authors": [], "bus_factor": 0}
-        result = analytics._validate_snapshot(report)
+        result = arch_mod._validate_snapshot(report)
         assert result["valid"] is False
         assert len(result["issues"]) >= 2  # zero commits + no hotspots + no authors + bus factor

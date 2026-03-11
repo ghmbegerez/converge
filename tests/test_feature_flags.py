@@ -31,12 +31,12 @@ class TestDefaults:
         # intent_links is enabled by default
         assert feature_flags.is_enabled("intent_links") is True
 
-    def test_is_enabled_unknown_returns_true(self, db_path):
-        """Unknown flag defaults to True."""
+    def test_is_enabled_unknown_returns_false(self, db_path):
+        """Unknown flag defaults to False (safe default)."""
         _reset_flags()
         with patch.dict(os.environ, {}, clear=True):
             feature_flags._load_flags()
-        assert feature_flags.is_enabled("nonexistent_flag_xyz") is True
+        assert feature_flags.is_enabled("nonexistent_flag_xyz") is False
 
 
 class TestGetMode:
