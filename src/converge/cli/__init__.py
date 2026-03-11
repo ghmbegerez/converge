@@ -27,7 +27,6 @@ from converge.cli._helpers import _out  # noqa: F401 — re-exported for tests
 from converge.cli._parser import build_parser
 from converge.cli.admin import (
     cmd_agent_authorize,
-    cmd_doctor,
     cmd_agent_policy_get,
     cmd_agent_policy_list,
     cmd_agent_policy_set,
@@ -47,20 +46,17 @@ from converge.cli.admin import (
     cmd_compliance_threshold_get,
     cmd_compliance_threshold_list,
     cmd_compliance_threshold_set,
+    cmd_doctor,
     cmd_export_decisions,
     cmd_harness_evaluate,
     cmd_health_change,
-    cmd_intake_set_mode,
-    cmd_intake_status,
-    cmd_security_findings,
-    cmd_security_scan,
-    cmd_security_summary,
-    cmd_verification_debt,
     cmd_health_change_trend,
     cmd_health_entropy,
     cmd_health_now,
     cmd_health_predict,
     cmd_health_trend,
+    cmd_intake_set_mode,
+    cmd_intake_status,
     cmd_metrics,
     cmd_predictions,
     cmd_review_assign,
@@ -71,6 +67,9 @@ from converge.cli.admin import (
     cmd_review_request,
     cmd_review_sla_check,
     cmd_review_summary,
+    cmd_security_findings,
+    cmd_security_scan,
+    cmd_security_summary,
     cmd_semantic_conflict_list,
     cmd_semantic_conflict_resolve,
     cmd_semantic_conflicts,
@@ -78,6 +77,7 @@ from converge.cli.admin import (
     cmd_semantic_reindex,
     cmd_semantic_status,
     cmd_serve,
+    cmd_verification_debt,
     cmd_worker,
 )
 from converge.cli.intents import (
@@ -103,7 +103,6 @@ from converge.cli.risk_cmds import (
     cmd_risk_review,
     cmd_risk_shadow,
 )
-
 
 # ===================================================================
 # Dispatch

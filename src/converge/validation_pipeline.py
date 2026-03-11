@@ -16,8 +16,13 @@ import logging
 from pathlib import Path
 from typing import Any
 
-log = logging.getLogger(__name__)
-
+from converge import analytics, coherence, event_log, policy, reviews, risk
+from converge.defaults import CONFLICT_DISPLAY_LIMIT
+from converge.event_payloads import (
+    BlockPayload,
+    GatePayload,
+    PolicyPayload,
+)
 from converge.models import (
     CoherenceEvaluation,
     Event,
@@ -29,13 +34,8 @@ from converge.models import (
     Simulation,
     Status,
 )
-from converge import analytics, coherence, event_log, policy, reviews, risk
-from converge.defaults import CONFLICT_DISPLAY_LIMIT
-from converge.event_payloads import (
-    BlockPayload,
-    GatePayload,
-    PolicyPayload,
-)
+
+log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Type alias: every step returns (value, blocked_or_None)

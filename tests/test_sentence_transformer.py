@@ -1,12 +1,10 @@
 """Tests for sentence-transformer embedding provider (Initiative 1)."""
 import math
-
-import pytest
 from unittest.mock import MagicMock
 
+import pytest
+
 from converge.semantic.embeddings import (
-    EmbeddingResult,
-    DeterministicProvider,
     _PROVIDERS,
     get_provider,
 )
@@ -28,8 +26,8 @@ def test_deterministic_stays_default():
 
 def test_flag_switches_provider(monkeypatch):
     """With semantic_embeddings_model flag set, provider resolution changes."""
-    from converge.semantic.indexer import _resolve_provider_name
     from converge import feature_flags
+    from converge.semantic.indexer import _resolve_provider_name
 
     monkeypatch.setenv("CONVERGE_FF_SEMANTIC_EMBEDDINGS_MODEL", "1")
     monkeypatch.setenv("CONVERGE_FF_SEMANTIC_EMBEDDINGS_MODEL_MODE", "sentence-transformers")
@@ -44,6 +42,7 @@ def test_flag_switches_provider(monkeypatch):
 def test_embed_returns_correct_dimension():
     """Mocked SentenceTransformer returns vectors of expected dimension."""
     import numpy as np
+
     from converge.semantic.sentence_transformer_provider import SentenceTransformerProvider
 
     mock_model = MagicMock()
@@ -64,6 +63,7 @@ def test_embed_returns_correct_dimension():
 def test_embed_batch():
     """Batch embedding returns correct number of results."""
     import numpy as np
+
     from converge.semantic.sentence_transformer_provider import SentenceTransformerProvider
 
     mock_model = MagicMock()
@@ -94,7 +94,7 @@ def test_cosine_numpy_vs_pure():
     b = [4.0, 3.0, 2.0, 1.0]
 
     # Pure python reference
-    dot = sum(x * y for x, y in zip(a, b))
+    dot = sum(x * y for x, y in zip(a, b, strict=True))
     norm_a = math.sqrt(sum(x * x for x in a))
     norm_b = math.sqrt(sum(x * x for x in b))
     expected = dot / (norm_a * norm_b)

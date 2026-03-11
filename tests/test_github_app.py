@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import os
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -10,6 +9,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import jwt
 import pytest
+
+# ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
+# Generate a real RSA key pair for tests
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
 
 from converge.integrations.github_app import (
     _post_check_run,
@@ -22,15 +28,6 @@ from converge.integrations.github_app import (
     reset_token_cache,
     resolve_installation_id,
 )
-
-
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
-
-# Generate a real RSA key pair for tests
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import rsa
 
 _test_private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
 _TEST_PEM = _test_private_key.private_bytes(

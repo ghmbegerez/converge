@@ -14,11 +14,10 @@ Pipeline:
 from __future__ import annotations
 
 import json
+import logging
 import math
 from dataclasses import dataclass, field
 from typing import Any
-
-import logging
 
 from converge import event_log
 from converge.defaults import QUERY_LIMIT_LARGE
@@ -101,7 +100,7 @@ def _cosine_similarity(a: list[float], b: list[float]) -> float:
         return float(dot / norm) if norm > 0 else 0.0
     except ImportError:
         # Pure Python fallback
-        dot = sum(x * y for x, y in zip(a, b))
+        dot = sum(x * y for x, y in zip(a, b, strict=True))
         norm_a = math.sqrt(sum(x * x for x in a))
         norm_b = math.sqrt(sum(x * x for x in b))
         if norm_a == 0 or norm_b == 0:

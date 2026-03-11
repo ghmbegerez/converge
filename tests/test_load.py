@@ -5,19 +5,17 @@ from __future__ import annotations
 import json
 import os
 import socket
-import statistics
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from unittest.mock import patch
-from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 import pytest
 
 from converge import event_log
 from converge.models import Intent, Status
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -27,6 +25,7 @@ from converge.models import Intent, Status
 def load_server(db_path):
     """Uvicorn server with auth/rate-limit disabled for pure load measurement."""
     import uvicorn
+
     from converge.api import create_app
 
     with patch.dict(os.environ, {
@@ -110,8 +109,8 @@ class TestLoadMultiTenant:
                 if status != 200:
                     errors += 1
 
-        p95 = sorted(latencies)[int(n_requests * 0.95)]
-        p99 = sorted(latencies)[int(n_requests * 0.99)]
+        sorted_latencies = sorted(latencies)
+        p99 = sorted_latencies[int(n_requests * 0.99)]
 
         assert errors == 0, f"Health requests had {errors} errors"
         assert p99 < 500, f"P99 latency {p99:.1f}ms exceeds 500ms"
@@ -191,7 +190,6 @@ class TestLoadMultiTenant:
                     errors += 1
 
         error_rate = errors / n_requests
-        avg_latency = statistics.mean(latencies)
         p99 = sorted(latencies)[int(n_requests * 0.99)]
 
         assert error_rate < 0.05, f"Error rate {error_rate:.1%} exceeds 5%"
@@ -233,6 +231,7 @@ class TestLoadMultiTenant:
     def test_rate_limiter_isolates_tenants(self, db_path):
         """Tenant A hitting rate limit does NOT throttle Tenant B."""
         import uvicorn
+
         from converge.api import create_app
         from converge.api.rate_limit import reset_limiter
 
@@ -260,7 +259,7 @@ class TestLoadMultiTenant:
                 base = f"http://127.0.0.1:{port}"
 
                 # Exhaust Tenant A's limit (5 RPM)
-                for i in range(8):
+                for _i in range(8):
                     req = Request(f"{base}/api/intents")
                     req.add_header("x-tenant-id", "tenant-A")
                     try:

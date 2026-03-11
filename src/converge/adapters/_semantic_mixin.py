@@ -11,7 +11,6 @@ from typing import Any
 
 from converge.models import now_iso
 
-
 # ---------------------------------------------------------------------------
 # EmbeddingStoreMixin
 # ---------------------------------------------------------------------------
@@ -23,7 +22,6 @@ class EmbeddingStoreMixin:
         self, intent_id: str, model: str, dimension: int,
         checksum: str, vector: str, generated_at: str,
     ) -> None:
-        ph = self._ph
         ex = self._excluded_prefix
         with self._connection() as conn:
             conn.execute(
@@ -124,8 +122,8 @@ class EmbeddingStoreMixin:
 
             # Last model/version used
             last_row = conn.execute(
-                f"SELECT model, generated_at FROM intent_embeddings "
-                f"ORDER BY generated_at DESC LIMIT 1",
+                "SELECT model, generated_at FROM intent_embeddings "
+                "ORDER BY generated_at DESC LIMIT 1",
             ).fetchone()
 
         not_indexed = total - indexed

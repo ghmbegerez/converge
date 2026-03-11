@@ -157,9 +157,7 @@ class TestStoreFactory:
 
 class TestBackfillScript:
     def test_backfill_and_verify(self, tmp_path):
-        import sqlite3
 
-        from converge.models import now_iso
 
         # Create and populate a SQLite DB
         sqlite_path = tmp_path / "source.db"

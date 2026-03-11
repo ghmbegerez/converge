@@ -2,18 +2,15 @@
 
 import os
 import socket
-import tempfile
 import threading
 import time
-from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
 from converge import event_log
 from converge.adapters.sqlite_store import SqliteStore
-from converge.models import Event, Intent, RiskLevel, Status, now_iso
-
+from converge.models import Intent, RiskLevel, Status
 
 # ---------------------------------------------------------------------------
 # Auto-use fixtures: cleanup global state between tests
@@ -25,8 +22,8 @@ def _reset_store():
     yield
     event_log._store = None
     # Reset rate limiter and rotated keys
-    from converge.api.rate_limit import reset_limiter
     from converge.api.auth import reset_rotated_keys
+    from converge.api.rate_limit import reset_limiter
     reset_limiter()
     reset_rotated_keys()
 
@@ -53,6 +50,7 @@ def live_server(db_path):
     own ``live_server`` fixture — it will shadow this one.
     """
     import uvicorn
+
     from converge.api import create_app
 
     with patch.dict(os.environ, {

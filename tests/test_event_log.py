@@ -77,7 +77,7 @@ def test_intent_crud(db_path, sample_intent):
 
 
 def test_list_intents_ordering(db_path):
-    for i, (prio, name) in enumerate([(3, "c"), (1, "a"), (2, "b")]):
+    for _i, (prio, name) in enumerate([(3, "c"), (1, "a"), (2, "b")]):
         intent = Intent(id=name, source=f"f/{name}", target="main",
                         status=Status.READY, priority=prio)
         event_log.upsert_intent(intent)

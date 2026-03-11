@@ -11,7 +11,7 @@ class TestDoctor:
     def test_doctor_basic(self, db_path):
         """doctor with a valid db_path returns pass or warn."""
         with patch("sys.stdout", new_callable=StringIO) as mock_stdout:
-            rc = main(["--db", str(db_path), "doctor"])
+            main(["--db", str(db_path), "doctor"])
         output = json.loads(mock_stdout.getvalue())
         assert output["overall"] in ("pass", "warn", "fail")
         assert len(output["checks"]) >= 3

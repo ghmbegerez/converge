@@ -2,16 +2,14 @@
 
 import json
 import os
-from io import BytesIO
 from unittest.mock import patch
-from urllib.request import Request, urlopen
 from urllib.error import HTTPError
+from urllib.request import Request, urlopen
 
 import pytest
 
 from converge import event_log
 from converge.api.auth import _authorize_request, _verify_github_signature
-
 
 # ---------------------------------------------------------------------------
 # Unit tests: auth helpers
@@ -67,7 +65,8 @@ class TestAuth:
 
 class TestGitHubSignature:
     def test_valid_signature(self, db_path):
-        import hmac, hashlib
+        import hashlib
+        import hmac
         secret = "mysecret"
         body = b'{"action": "opened"}'
         sig = "sha256=" + hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
@@ -100,7 +99,7 @@ class TestHTTPEndpoints:
             req = Request(f"{live_server}/api/nonexistent")
             try:
                 urlopen(req)
-                assert False, "Expected 404"
+                raise AssertionError("Expected 404")
             except HTTPError as e:
                 assert e.code == 404
 
@@ -114,7 +113,7 @@ class TestHTTPEndpoints:
             )
             try:
                 urlopen(req)
-                assert False, "Expected 400"
+                raise AssertionError("Expected 400")
             except HTTPError as e:
                 assert e.code == 400
                 body = json.loads(e.read())
@@ -132,7 +131,7 @@ class TestHTTPEndpoints:
             )
             try:
                 urlopen(req)
-                assert False, "Expected 400"
+                raise AssertionError("Expected 400")
             except HTTPError as e:
                 assert e.code == 400
                 body = json.loads(e.read())
@@ -150,7 +149,7 @@ class TestHTTPEndpoints:
             )
             try:
                 urlopen(req)
-                assert False, "Expected 400"
+                raise AssertionError("Expected 400")
             except HTTPError as e:
                 assert e.code == 400 or e.code == 422
                 body = json.loads(e.read())
@@ -166,7 +165,7 @@ class TestHTTPEndpoints:
             )
             try:
                 urlopen(req)
-                assert False, "Expected 400"
+                raise AssertionError("Expected 400")
             except HTTPError as e:
                 assert e.code == 400
 
@@ -175,7 +174,7 @@ class TestHTTPEndpoints:
             req = Request(f"{live_server}/api/intents")
             try:
                 urlopen(req)
-                assert False, "Expected 401"
+                raise AssertionError("Expected 401")
             except HTTPError as e:
                 assert e.code == 401
 
@@ -212,7 +211,7 @@ class TestTenantEnforcement:
             )
             try:
                 urlopen(req)
-                assert False, "Expected 403"
+                raise AssertionError("Expected 403")
             except HTTPError as e:
                 assert e.code == 403
 
@@ -322,7 +321,7 @@ class TestWebhook:
             )
             try:
                 urlopen(req)
-                assert False, "Expected 403"
+                raise AssertionError("Expected 403")
             except HTTPError as e:
                 assert e.code == 403
                 body = json.loads(e.read())

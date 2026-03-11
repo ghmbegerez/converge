@@ -1,12 +1,10 @@
 """Tests for webhook notification system (Initiative 6)."""
 import hashlib
 import hmac
-import json
 import sys
-import pytest
 from unittest.mock import MagicMock, patch
 
-from converge.models import Event, EventType
+from converge.models import EventType
 
 
 def _make_mock_httpx(*, status_code=200, side_effect=None):

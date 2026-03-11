@@ -1,7 +1,7 @@
 """Tests for projections (derived views over events)."""
 
 from converge import event_log, projections
-from converge.models import Event, Intent, Status, now_iso
+from converge.models import Event, Intent, Status
 
 
 def _seed_events(n_sims=10, n_merged=5, n_rejected=2):

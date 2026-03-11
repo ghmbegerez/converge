@@ -6,17 +6,17 @@ from converge.models import Intent, RiskEval, RiskLevel, Simulation, Status
 from converge.risk import (
     analyze_findings,
     build_dependency_graph,
+    build_diagnostics,
     build_impact_edges,
-    compute_entropic_load,
-    compute_contextual_value,
     compute_complexity_delta,
+    compute_contextual_value,
+    compute_entropic_load,
     compute_path_dependence,
     containment_score,
     detect_bombs,
     evaluate_risk,
     graph_metrics,
     propagation_score,
-    build_diagnostics,
 )
 
 

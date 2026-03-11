@@ -141,8 +141,8 @@ def _check_semantic_similarity(
     """Check semantic similarity against existing intents."""
     try:
         from converge.semantic.canonical import build_canonical_text
-        from converge.semantic.embeddings import get_provider
         from converge.semantic.conflicts import cosine_similarity
+        from converge.semantic.embeddings import get_provider
     except ImportError:
         return {"max_similarity": 0.0, "similar": []}
 

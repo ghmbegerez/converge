@@ -71,7 +71,7 @@ def verify_chain() -> dict[str, Any]:
     stored_state = _get_chain_state()
 
     prev_hash = _GENESIS_HASH
-    for i, evt in enumerate(events):
+    for _i, evt in enumerate(events):
         prev_hash = compute_event_hash(evt, prev_hash)
 
     if stored_state is None:

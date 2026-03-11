@@ -11,7 +11,7 @@ interact with the system. Each agent has a policy defining:
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from converge import event_log, projections
@@ -71,7 +71,7 @@ def authorize(
     if pol.expires_at:
         try:
             exp = datetime.fromisoformat(pol.expires_at)
-            if datetime.now(timezone.utc) > exp:
+            if datetime.now(UTC) > exp:
                 reasons.append(f"Policy expired at {pol.expires_at}")
                 allowed = False
         except ValueError:

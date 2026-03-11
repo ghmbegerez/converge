@@ -3,15 +3,12 @@
 from __future__ import annotations
 
 import json
-import os
-from unittest.mock import patch
-from urllib.request import Request, urlopen
-from urllib.error import HTTPError
+from urllib.request import urlopen
 
 import pytest
 
 from converge import event_log
-from converge.models import Event, EventType, Intent, RiskLevel, Status, now_iso
+from converge.models import Event, EventType, Intent, RiskLevel, Status
 
 
 def _seed_data():
@@ -178,7 +175,7 @@ class TestExportHTTP:
 
         assert resp.headers.get("Content-Type").startswith("application/x-ndjson")
 
-        lines = [l for l in body.strip().split("\n") if l]
+        lines = [line for line in body.strip().split("\n") if line]
         assert len(lines) >= 1
 
         # Each line is valid JSON

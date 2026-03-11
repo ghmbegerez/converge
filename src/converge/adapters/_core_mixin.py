@@ -129,7 +129,6 @@ class IntentStoreMixin:
     """Mixin providing IntentStorePort methods."""
 
     def upsert_intent(self, intent: Intent) -> None:
-        ph = self._ph
         ex = self._excluded_prefix
         with self._connection() as conn:
             conn.execute(

@@ -35,8 +35,8 @@ def _build_learning_result(
     summary: str, level: str, lessons: list[dict[str, Any]],
 ) -> dict[str, Any]:
     """Sort lessons by priority and assemble the standard learning result."""
-    lessons.sort(key=lambda l: l["priority"])
-    next_actions = [l["action"] for l in lessons[:_MAX_NEXT_ACTIONS]]
+    lessons.sort(key=lambda item: item["priority"])
+    next_actions = [item["action"] for item in lessons[:_MAX_NEXT_ACTIONS]]
     return {"summary": summary, "level": level, "lessons": lessons, "next_actions": next_actions}
 
 

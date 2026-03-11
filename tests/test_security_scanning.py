@@ -1,7 +1,7 @@
 """Tests for security scanning (AR-37..AR-40)."""
 
 import json
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from converge import event_log, security
 from converge.adapters.security import (
@@ -12,16 +12,13 @@ from converge.adapters.security import (
 )
 from converge.event_types import EventType
 from converge.models import (
-    Event,
     FindingCategory,
     FindingSeverity,
     GateName,
-    SecurityFinding,
-    new_id,
     RiskLevel,
+    SecurityFinding,
 )
-from converge.policy import PolicyConfig, evaluate
-
+from converge.policy import evaluate
 
 
 class TestSecurityFinding:
@@ -395,7 +392,7 @@ class TestSecurityOrchestrator:
         ]
 
         result = security.run_scan(
-        "/tmp/test", scanners=[mock_scanner], intent_id="i-1",
+        "/tmp/test", scanners=[mock_scanner], intent_id="i-1",  # noqa: S108
         )
         assert result["total_findings"] == 1
         assert result["severity_counts"]["high"] == 1
@@ -407,7 +404,7 @@ class TestSecurityOrchestrator:
         mock_scanner.scanner_name = "unavailable"
         mock_scanner.is_available.return_value = False
 
-        result = security.run_scan("/tmp", scanners=[mock_scanner])
+        result = security.run_scan("/tmp", scanners=[mock_scanner])  # noqa: S108
         assert result["total_findings"] == 0
         assert result["scanners"][0]["status"] == "skipped"
 
@@ -417,7 +414,7 @@ class TestSecurityOrchestrator:
         mock_scanner.is_available.return_value = True
         mock_scanner.scan.return_value = []
 
-        security.run_scan("/tmp", scanners=[mock_scanner])
+        security.run_scan("/tmp", scanners=[mock_scanner])  # noqa: S108
         started = event_log.query(event_type=EventType.SECURITY_SCAN_STARTED)
         completed = event_log.query(event_type=EventType.SECURITY_SCAN_COMPLETED)
         assert len(started) == 1
@@ -435,7 +432,7 @@ class TestSecurityOrchestrator:
             ),
         ]
 
-        security.run_scan("/tmp", scanners=[mock_scanner])
+        security.run_scan("/tmp", scanners=[mock_scanner])  # noqa: S108
         detected = event_log.query(event_type=EventType.SECURITY_FINDING_DETECTED)
         assert len(detected) == 1
 
@@ -450,7 +447,7 @@ class TestSecurityOrchestrator:
             ),
         ]
 
-        security.run_scan("/tmp", scanners=[mock_scanner], intent_id="i-1")
+        security.run_scan("/tmp", scanners=[mock_scanner], intent_id="i-1")  # noqa: S108
         stored = event_log.list_security_findings(intent_id="i-1")
         assert len(stored) == 1
 
@@ -485,7 +482,7 @@ class TestSecurityOrchestrator:
             ),
         ]
 
-        result = security.run_scan("/tmp", scanners=[scanner1, scanner2])
+        result = security.run_scan("/tmp", scanners=[scanner1, scanner2])  # noqa: S108
         assert result["total_findings"] == 2
         assert len(result["scanners"]) == 2
 

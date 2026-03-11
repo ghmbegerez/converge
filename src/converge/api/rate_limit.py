@@ -9,7 +9,6 @@ from __future__ import annotations
 import os
 import time
 from collections import defaultdict
-from typing import Any
 
 from fastapi import Request, Response
 from fastapi.responses import JSONResponse

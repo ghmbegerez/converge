@@ -13,15 +13,14 @@ import os
 import socket
 import threading
 import time
-from unittest.mock import AsyncMock, MagicMock, patch
-from urllib.request import Request, urlopen
+from unittest.mock import AsyncMock, patch
 from urllib.error import HTTPError
+from urllib.request import Request, urlopen
 
 import pytest
 
 from converge import event_log
-from converge.models import Event, EventType, Intent, Status
-
+from converge.models import Intent, Status
 
 # ---------------------------------------------------------------------------
 # P1: httpx import available in worker
@@ -36,6 +35,7 @@ class TestWorkerHttpxImport:
     def test_worker_async_publish_uses_httpx(self, db_path):
         """_async_publish creates an httpx.AsyncClient without NameError."""
         import asyncio
+
         from converge.worker import QueueWorker, WorkerConfig
 
         config = WorkerConfig()
@@ -53,6 +53,7 @@ class TestWorkerHttpxImport:
     def test_worker_publish_uses_per_intent_installation_id(self, db_path):
         """Worker prefers intent.technical.installation_id over global config."""
         import asyncio
+
         from converge.worker import QueueWorker, WorkerConfig
 
         config = WorkerConfig()
@@ -89,6 +90,7 @@ class TestWorkerHttpxImport:
     def test_worker_publish_invalid_installation_id_falls_back(self, db_path):
         """Invalid per-intent installation_id falls back to global config."""
         import asyncio
+
         from converge.worker import QueueWorker, WorkerConfig
 
         config = WorkerConfig()
@@ -255,8 +257,9 @@ class TestPerIntentInstallationId:
 
     def test_try_publish_decision_uses_intent_installation_id(self, db_path):
         """_try_publish_decision prefers the passed installation_id over ENV."""
-        from converge.integrations.github_publish import try_publish_decision as _try_publish_decision
         import asyncio
+
+        from converge.integrations.github_publish import try_publish_decision as _try_publish_decision
 
         mock_pub = AsyncMock()
 
@@ -288,6 +291,7 @@ class TestWebhookRateLimitExempt:
     def test_webhook_not_rate_limited(self, db_path):
         """Webhook endpoint is exempt from rate limiting even under burst."""
         import uvicorn
+
         from converge.api import create_app
         from converge.api.rate_limit import reset_limiter
 

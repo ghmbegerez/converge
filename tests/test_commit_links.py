@@ -3,7 +3,6 @@
 from conftest import make_intent
 
 from converge import event_log
-from converge.models import Intent, RiskLevel, Status
 
 
 class TestCommitLinkCRUD:
@@ -16,7 +15,7 @@ class TestCommitLinkCRUD:
 
         links = event_log.list_commit_links("cl-001")
         assert len(links) == 2
-        shas = {l["sha"] for l in links}
+        shas = {link["sha"] for link in links}
         assert shas == {"abc123", "def456"}
 
     def test_upsert_idempotent(self, db_path):
@@ -34,7 +33,7 @@ class TestCommitLinkCRUD:
 
         links = event_log.list_commit_links("cl-003")
         assert len(links) == 2
-        roles = {l["role"] for l in links}
+        roles = {link["role"] for link in links}
         assert roles == {"head", "merge"}
 
     def test_delete_link(self, db_path):

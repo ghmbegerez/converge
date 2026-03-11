@@ -11,7 +11,7 @@ import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
 
-from converge.adapters.base_store import SCHEMA, _MIGRATIONS, BaseConvergeStore
+from converge.adapters.base_store import _MIGRATIONS, SCHEMA, BaseConvergeStore
 
 
 class SqliteStore(BaseConvergeStore):

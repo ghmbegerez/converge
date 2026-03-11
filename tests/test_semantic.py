@@ -14,7 +14,6 @@ from converge.semantic.embeddings import (
 )
 from converge.semantic.indexer import index_intent, reindex
 
-
 # ===================================================================
 # AR-10: Canonical text builder
 # ===================================================================
@@ -235,7 +234,7 @@ class TestEmbeddingProvider:
         """Unknown provider name raises ValueError."""
         try:
             get_provider("nonexistent")
-            assert False, "Should have raised ValueError"
+            raise AssertionError("Should have raised ValueError")
         except ValueError as e:
             assert "nonexistent" in str(e)
 

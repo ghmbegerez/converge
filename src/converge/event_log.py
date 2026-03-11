@@ -19,7 +19,6 @@ from pathlib import Path
 from typing import Any
 
 from converge.models import Event, Intent, ReviewTask, RiskLevel, Status, new_id, now_iso  # noqa: F401 — re-export
-
 from converge.ports import ConvergeStore
 
 # ---------------------------------------------------------------------------

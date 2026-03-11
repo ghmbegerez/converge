@@ -7,15 +7,14 @@ import os
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from unittest.mock import patch, MagicMock
-from urllib.request import Request, urlopen
+from unittest.mock import patch
 from urllib.error import HTTPError
+from urllib.request import Request, urlopen
 
 import pytest
 
 from converge import event_log
-from converge.adapters.sqlite_store import SqliteStore
-from converge.models import Event, EventType, Intent, Status
+from converge.models import Event, EventType
 
 
 def _webhook(url: str, event: str, payload: dict, delivery_id: str) -> int:
@@ -248,7 +247,7 @@ class TestStoreFailover:
         with patch.object(event_log, "count", side_effect=RuntimeError("DB down")):
             try:
                 urlopen(f"{live_server}/health/ready", timeout=5)
-                assert False, "Should have raised"
+                raise AssertionError("Should have raised")
             except HTTPError as e:
                 assert e.code == 503
                 body = json.loads(e.read())

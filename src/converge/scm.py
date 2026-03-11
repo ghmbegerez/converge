@@ -143,7 +143,7 @@ def log_entries(max_commits: int = 400, cwd: str | Path | None = None) -> list[d
     entries = []
     blocks = r.stdout.split(sep)
     for block in blocks:
-        lines = [l for l in block.strip().splitlines() if l.strip()]
+        lines = [line for line in block.strip().splitlines() if line.strip()]
         if len(lines) < 4:
             continue
         sha, author, date, subject = lines[0], lines[1], lines[2], lines[3]

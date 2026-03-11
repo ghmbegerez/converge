@@ -7,9 +7,9 @@ from typing import Any
 from converge import event_log
 from converge.defaults import QUERY_LIMIT_LARGE, QUERY_LIMIT_MEDIUM
 from converge.models import EventType, Status, now_iso
-from converge.projections_models import HealthSnapshot
 from converge.projections._time import _safe_avg, _since_days, _since_hours
 from converge.projections.learning import derive_change_learning, derive_health_learning
+from converge.projections_models import HealthSnapshot
 
 # --- Health scoring constants ---
 _HEALTH_GREEN = 70

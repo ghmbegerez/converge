@@ -9,8 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from converge.models import now_iso
-
+from converge.models import ReviewTask, now_iso
 
 # ---------------------------------------------------------------------------
 # ReviewStoreMixin
@@ -20,7 +19,7 @@ class ReviewStoreMixin:
     """Mixin providing ReviewStorePort methods."""
 
     @staticmethod
-    def _row_to_review_task(row: Any) -> "ReviewTask":
+    def _row_to_review_task(row: Any) -> ReviewTask:
         from converge.models import ReviewStatus, ReviewTask, RiskLevel
         d = dict(row)
         return ReviewTask(
@@ -41,9 +40,7 @@ class ReviewStoreMixin:
             tenant_id=d.get("tenant_id"),
         )
 
-    def upsert_review_task(self, task: "ReviewTask") -> None:
-        from converge.models import ReviewTask  # noqa: F811
-        ph = self._ph
+    def upsert_review_task(self, task: ReviewTask) -> None:
         ex = self._excluded_prefix
         with self._connection() as conn:
             conn.execute(
@@ -69,7 +66,7 @@ class ReviewStoreMixin:
             )
             conn.commit()
 
-    def get_review_task(self, task_id: str) -> "ReviewTask | None":
+    def get_review_task(self, task_id: str) -> ReviewTask | None:
         ph = self._ph
         with self._connection() as conn:
             row = conn.execute(
@@ -87,7 +84,7 @@ class ReviewStoreMixin:
         reviewer: str | None = None,
         tenant_id: str | None = None,
         limit: int = 200,
-    ) -> list["ReviewTask"]:
+    ) -> list[ReviewTask]:
         where, params = self._build_where({
             "intent_id": intent_id, "status": status,
             "reviewer": reviewer, "tenant_id": tenant_id,

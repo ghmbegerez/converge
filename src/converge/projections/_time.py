@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 
 def _since_hours(hours: int) -> str:
-    return (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
+    return (datetime.now(UTC) - timedelta(hours=hours)).isoformat()
 
 
 def _since_days(days: int) -> str:
-    return (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    return (datetime.now(UTC) - timedelta(days=days)).isoformat()
 
 
 def _safe_avg(values: list[float]) -> float:

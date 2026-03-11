@@ -113,7 +113,7 @@ def create_app(
         errors = exc.errors()
         if errors:
             first = errors[0]
-            loc = ".".join(str(l) for l in first.get("loc", []))
+            loc = ".".join(str(part) for part in first.get("loc", []))
             msg = first.get("msg", "Invalid input")
             detail = f"{loc}: {msg}" if loc else msg
         else:

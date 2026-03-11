@@ -18,8 +18,7 @@ from pathlib import Path
 import pytest
 
 from converge import engine, event_log
-from converge.models import Event, EventType, Intent, RiskLevel, Simulation, Status
-
+from converge.models import Event, EventType, Intent, RiskLevel, Status
 
 # ---------------------------------------------------------------------------
 # Git repo fixtures
@@ -292,7 +291,7 @@ class TestLifecycleRejectAfterMaxRetries:
         # Process queue repeatedly. Each attempt should fail (conflict) and
         # increment retries. After max_retries total blocked attempts the
         # intent should transition to REJECTED.
-        for attempt in range(max_retries + 1):
+        for _attempt in range(max_retries + 1):
             current = event_log.get_intent("lifecycle-retry-001")
             if current.status == Status.REJECTED:
                 break
@@ -304,7 +303,7 @@ class TestLifecycleRejectAfterMaxRetries:
                     retries=current.retries,
                 )
 
-            results = engine.process_queue(
+            engine.process_queue(
                 auto_confirm=True,
                 skip_checks=True,
                 max_retries=max_retries,

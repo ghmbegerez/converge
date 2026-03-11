@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from converge.models import now_iso
@@ -158,7 +158,7 @@ class LockMixin:
         pid = holder_pid or os.getpid()
         now = now_iso()
         expires = (
-            datetime.now(timezone.utc) + timedelta(seconds=ttl_seconds)
+            datetime.now(UTC) + timedelta(seconds=ttl_seconds)
         ).isoformat()
         with self._connection() as conn:
             # Log expired locks before cleaning them up

@@ -10,8 +10,6 @@ Debt score (0-100) composed of 5 weighted factors:
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-
 from converge import event_log
 from converge.defaults import QUERY_LIMIT_LARGE
 from converge.models import EventType, Status
@@ -68,7 +66,6 @@ def verification_debt(
     active_count = len(active)
 
     # 2. Factor: staleness
-    stale_cutoff = (datetime.now(timezone.utc)).isoformat()
     stale_count = 0
     if active:
         threshold_str = _since_hours(stale_hours)

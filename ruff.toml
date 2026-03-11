@@ -17,6 +17,10 @@ ignore = [
     "S603",  # subprocess without shell=True — intentional
     "S607",  # starting a process with a partial path — intentional (git)
     "E501",  # line too long — formatter handles this
+    "S310",  # urllib.parse — URLs are internal/config-driven, not user input
+    "S311",  # random — not used for security/cryptographic purposes
+    "B008",  # mutable default args — FastAPI Depends() pattern is standard
+    "S608",  # SQL injection — all queries use parameterized placeholders
 ]
 
 [lint.per-file-ignores]

@@ -193,9 +193,9 @@ class TestConflictBlend:
 
     def test_breakdown_includes_conflict_rate(self, db_path):
         """Breakdown conflict_rate reflects the blended value."""
-        from converge.models import Event
         from converge.event_types import EventType as ET
-        for i in range(4):
+        from converge.models import Event
+        for _i in range(4):
             event_log.append(Event(
                 event_type=ET.SIMULATION_COMPLETED,
                 payload={"mergeable": False},

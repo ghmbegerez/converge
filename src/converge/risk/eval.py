@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from converge.defaults import CONFLICT_DISPLAY_LIMIT
-from converge.models import Intent, RiskEval, Simulation
+from converge.defaults import CONFLICT_DISPLAY_LIMIT, RISK_CLASSIFICATION_THRESHOLDS
+from converge.models import Intent, RiskEval, RiskLevel, Simulation
 from converge.risk._constants import _CORE_TARGETS, _SEVERITY_ORDER
 from converge.risk.bombs import detect_bombs
 from converge.risk.graph import (
@@ -15,6 +15,13 @@ from converge.risk.graph import (
     graph_metrics,
     propagation_score,
 )
+from converge.risk.signals import (
+    compute_complexity_delta,
+    compute_contextual_value,
+    compute_entropic_load,
+    compute_path_dependence,
+)
+
 # --- Risk score composite weights ---
 _RISK_W_ENTROPIC = 0.30
 _RISK_W_CONTEXTUAL = 0.25
@@ -37,16 +44,6 @@ _DIAG_PATH_DEP = 40
 # --- Findings thresholds ---
 _FINDING_LARGE_CHANGE = 15
 _FINDING_DEP_SPREAD = 3
-
-from converge.defaults import RISK_CLASSIFICATION_THRESHOLDS
-from converge.models import RiskLevel
-
-from converge.risk.signals import (
-    compute_complexity_delta,
-    compute_contextual_value,
-    compute_entropic_load,
-    compute_path_dependence,
-)
 
 
 def classify_risk_level(

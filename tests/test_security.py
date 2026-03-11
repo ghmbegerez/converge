@@ -6,21 +6,20 @@ import json
 import os
 import time
 from unittest.mock import patch
-from urllib.request import Request, urlopen
 from urllib.error import HTTPError
+from urllib.request import Request, urlopen
 
 import pytest
 
 from converge import event_log
 from converge.api.auth import (
     _authorize_request,
-    _principal_has_scope,
-    _resolve_scope,
-    _register_rotated_key,
     _check_rotated_key,
+    _principal_has_scope,
+    _register_rotated_key,
+    _resolve_scope,
     reset_rotated_keys,
 )
-
 
 # ---------------------------------------------------------------------------
 # Scope logic (unit tests)
@@ -126,7 +125,7 @@ class TestPydanticValidation:
             )
             try:
                 urlopen(req)
-                assert False, "Expected 400"
+                raise AssertionError("Expected 400")
             except HTTPError as e:
                 assert e.code == 400 or e.code == 422
 
@@ -141,7 +140,7 @@ class TestPydanticValidation:
             )
             try:
                 urlopen(req)
-                assert False, "Expected 400"
+                raise AssertionError("Expected 400")
             except HTTPError as e:
                 assert e.code == 400 or e.code == 422
 
@@ -156,7 +155,7 @@ class TestPydanticValidation:
             )
             try:
                 urlopen(req)
-                assert False, "Expected 400"
+                raise AssertionError("Expected 400")
             except HTTPError as e:
                 assert e.code == 400 or e.code == 422
 
@@ -171,7 +170,7 @@ class TestPydanticValidation:
             )
             try:
                 urlopen(req)
-                assert False, "Expected 400"
+                raise AssertionError("Expected 400")
             except HTTPError as e:
                 assert e.code == 400 or e.code == 422
                 body = json.loads(e.read())
@@ -232,7 +231,7 @@ class TestScopeEnforcementHTTP:
             )
             try:
                 urlopen(req)
-                assert False, "Expected 403"
+                raise AssertionError("Expected 403")
             except HTTPError as e:
                 assert e.code == 403
                 body = json.loads(e.read())

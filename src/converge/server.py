@@ -11,7 +11,6 @@ from converge.api.auth import (  # noqa: F401 — backward compat re-exports
     ROLE_RANK,
     _authorize_request,
 )
-from converge.models import now_iso
 
 log = logging.getLogger(__name__)
 

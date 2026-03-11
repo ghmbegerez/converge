@@ -1,14 +1,12 @@
 """Tests for archaeology enhancements: link-enriched coupling, provenance, refresh (AR-07..AR-09)."""
 
 import json
-from pathlib import Path
 from unittest.mock import patch
 
 from conftest import make_intent
 
 from converge import analytics, event_log
 from converge.analytics import archaeology as arch_mod
-from converge.models import Intent, RiskLevel, Status
 
 
 class TestCouplingProvenance:

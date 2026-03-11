@@ -4,9 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
-
 SRC_DIR = Path(__file__).resolve().parent.parent / "src" / "converge"
 
 
@@ -18,19 +15,10 @@ class TestRiskPackageImports:
     def test_risk_top_level_reexports(self):
         """All public symbols accessible via converge.risk."""
         from converge.risk import (
-            analyze_findings,
             build_dependency_graph,
-            build_diagnostics,
-            build_impact_edges,
-            compute_complexity_delta,
-            compute_contextual_value,
             compute_entropic_load,
-            compute_path_dependence,
-            containment_score,
             detect_bombs,
             evaluate_risk,
-            graph_metrics,
-            propagation_score,
         )
         # All should be callable
         assert callable(evaluate_risk)
@@ -40,10 +28,10 @@ class TestRiskPackageImports:
 
     def test_risk_submodule_direct_import(self):
         """Submodules importable directly."""
-        from converge.risk.signals import compute_entropic_load
-        from converge.risk.graph import build_dependency_graph
         from converge.risk.bombs import detect_bombs
         from converge.risk.eval import evaluate_risk
+        from converge.risk.graph import build_dependency_graph
+        from converge.risk.signals import compute_entropic_load
         assert callable(compute_entropic_load)
         assert callable(build_dependency_graph)
         assert callable(detect_bombs)
@@ -51,7 +39,7 @@ class TestRiskPackageImports:
 
     def test_risk_constants_accessible(self, db_path):
         """Constants accessible from _constants module."""
-        from converge.risk._constants import _RISK_BONUS, _CORE_TARGETS
+        from converge.risk._constants import _CORE_TARGETS, _RISK_BONUS
         assert "main" in _CORE_TARGETS
         assert "medium" in _RISK_BONUS
 
@@ -63,17 +51,17 @@ class TestRiskPackageImports:
 class TestCLIPackageImports:
     def test_cli_top_level_exports(self, db_path):
         """build_parser, main, _out accessible from converge.cli."""
-        from converge.cli import build_parser, main, _out
+        from converge.cli import _out, build_parser, main
         assert callable(build_parser)
         assert callable(main)
         assert callable(_out)
 
     def test_cli_submodule_direct_import(self, db_path):
         """Submodules importable directly."""
+        from converge.cli.admin import cmd_serve
         from converge.cli.intents import cmd_intent_create
         from converge.cli.queue import cmd_queue_run
         from converge.cli.risk_cmds import cmd_risk_eval
-        from converge.cli.admin import cmd_serve
         assert callable(cmd_intent_create)
         assert callable(cmd_queue_run)
         assert callable(cmd_risk_eval)

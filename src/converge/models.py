@@ -4,17 +4,16 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from enum import Enum
+from datetime import UTC, datetime
+from enum import StrEnum
 from typing import Any
-
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 def now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def new_id() -> str:
@@ -25,7 +24,7 @@ def new_id() -> str:
 # Enums
 # ---------------------------------------------------------------------------
 
-class Status(str, Enum):
+class Status(StrEnum):
     READY = "READY"
     VALIDATED = "VALIDATED"
     QUEUED = "QUEUED"
@@ -33,14 +32,14 @@ class Status(str, Enum):
     REJECTED = "REJECTED"
 
 
-class RiskLevel(str, Enum):
+class RiskLevel(StrEnum):
     LOW = "low"
     MEDIUM = "medium"
     HIGH = "high"
     CRITICAL = "critical"
 
 
-class ReviewStatus(str, Enum):
+class ReviewStatus(StrEnum):
     PENDING = "pending"
     ASSIGNED = "assigned"
     IN_REVIEW = "in_review"
@@ -49,12 +48,12 @@ class ReviewStatus(str, Enum):
     CANCELLED = "cancelled"
 
 
-class PolicyVerdict(str, Enum):
+class PolicyVerdict(StrEnum):
     ALLOW = "ALLOW"
     BLOCK = "BLOCK"
 
 
-class GateName(str, Enum):
+class GateName(StrEnum):
     VERIFICATION = "verification"
     CONTAINMENT = "containment"
     ENTROPY = "entropy"
@@ -63,19 +62,18 @@ class GateName(str, Enum):
     COHERENCE = "coherence"
 
 
-class CoherenceVerdict(str, Enum):
-    PASS = "pass"
+class CoherenceVerdict(StrEnum):
+    PASS = "pass"  # noqa: S105
     WARN = "warn"
     FAIL = "fail"
 
 
-from converge.event_types import EventType  # noqa: F401
-from converge.security_models import (  # noqa: F401
+from converge.event_types import EventType  # noqa: F401, E402
+from converge.security_models import (  # noqa: F401, E402
     FindingCategory,
     FindingSeverity,
     SecurityFinding,
 )
-
 
 # ---------------------------------------------------------------------------
 # Intent

@@ -15,10 +15,10 @@ from pathlib import Path
 from typing import Any
 
 from converge import event_log
-
-log = logging.getLogger(__name__)
 from converge.event_types import EventType
 from converge.models import Event
+
+log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Flag definitions with safe defaults
@@ -122,7 +122,7 @@ def _load_flags() -> None:
                             _flags[name].enabled = cfg.get("enabled", _flags[name].enabled)
                             _flags[name].mode = cfg.get("mode", _flags[name].mode)
                         _flags[name].source = "config"
-            except (json.JSONDecodeError, IOError):
+            except (OSError, json.JSONDecodeError):
                 log.warning("Failed to load flags config: %s", p)
             break
 

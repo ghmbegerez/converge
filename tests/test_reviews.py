@@ -1,20 +1,18 @@
 """Tests for human review orchestration (AR-32..AR-36)."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from conftest import make_intent
 
 from converge import event_log
+from converge.defaults import REVIEW_SLA_HOURS
 from converge.models import (
     EventType,
-    Intent,
     ReviewStatus,
     ReviewTask,
     RiskLevel,
-    Status,
     now_iso,
 )
-from converge.defaults import REVIEW_SLA_HOURS
 from converge.reviews import (
     _compute_sla_deadline,
     assign_review,
@@ -25,7 +23,6 @@ from converge.reviews import (
     request_review,
     review_summary,
 )
-
 
 # ===================================================================
 # AR-32: Review task model and storage
@@ -283,7 +280,7 @@ class TestSLARules:
     def test_check_sla_breaches_detects_overdue(self, db_path):
         """check_sla_breaches finds overdue tasks."""
         # Create a task with SLA in the past
-        past = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+        past = (datetime.now(UTC) - timedelta(hours=1)).isoformat()
         task = ReviewTask(
             id="slb-001", intent_id="i-slb",
             status=ReviewStatus.PENDING,
@@ -296,7 +293,7 @@ class TestSLARules:
 
     def test_check_sla_breaches_emits_events(self, db_path):
         """SLA breach detection emits events."""
-        past = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+        past = (datetime.now(UTC) - timedelta(hours=1)).isoformat()
         task = ReviewTask(
             id="slb-010", intent_id="i-slb2",
             status=ReviewStatus.ASSIGNED,
@@ -313,7 +310,7 @@ class TestSLARules:
 
     def test_check_sla_completed_not_breached(self, db_path):
         """Completed tasks are not flagged as breached."""
-        past = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+        past = (datetime.now(UTC) - timedelta(hours=1)).isoformat()
         task = ReviewTask(
             id="slb-020", intent_id="i-slb3",
             status=ReviewStatus.COMPLETED,
@@ -325,7 +322,7 @@ class TestSLARules:
 
     def test_check_sla_future_deadline_ok(self, db_path):
         """Tasks with future SLA deadline are not breached."""
-        future = (datetime.now(timezone.utc) + timedelta(hours=24)).isoformat()
+        future = (datetime.now(UTC) + timedelta(hours=24)).isoformat()
         task = ReviewTask(
             id="slb-030", intent_id="i-slb4",
             status=ReviewStatus.PENDING,
@@ -371,11 +368,11 @@ class TestReviewSummary:
 
     def test_summary_sla_breached_count(self, db_path):
         """Summary counts SLA-breached tasks."""
-        past = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+        past = (datetime.now(UTC) - timedelta(hours=1)).isoformat()
         event_log.upsert_review_task(ReviewTask(
             id="rs-020", intent_id="i-020",
             status=ReviewStatus.PENDING, sla_deadline=past))
-        future = (datetime.now(timezone.utc) + timedelta(hours=24)).isoformat()
+        future = (datetime.now(UTC) + timedelta(hours=24)).isoformat()
         event_log.upsert_review_task(ReviewTask(
             id="rs-021", intent_id="i-021",
             status=ReviewStatus.PENDING, sla_deadline=future))

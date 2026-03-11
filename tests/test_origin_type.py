@@ -1,13 +1,11 @@
 """Tests for origin_type: model, storage, ingestion, and policy by origin (AR-15..AR-17)."""
 
-import json
 
 from conftest import make_intent
 
 from converge import event_log
 from converge.models import Intent, RiskLevel, Status
-from converge.policy import PolicyConfig, DEFAULT_PROFILES, evaluate
-
+from converge.policy import DEFAULT_PROFILES, PolicyConfig, evaluate
 
 # ===================================================================
 # AR-15: origin_type in model and storage

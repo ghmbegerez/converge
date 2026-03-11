@@ -29,7 +29,7 @@ import logging
 import os
 import signal
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -218,7 +218,7 @@ class QueueWorker:
         if self._cycles % self._prune_interval_cycles != 0:
             return
 
-        cutoff = (datetime.now(timezone.utc) - timedelta(days=90)).isoformat()
+        cutoff = (datetime.now(UTC) - timedelta(days=90)).isoformat()
         try:
             pruned_events = event_log.prune_events(before=cutoff)
             pruned_deliveries = event_log.prune_deliveries(before=cutoff)

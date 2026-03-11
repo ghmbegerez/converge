@@ -1,8 +1,6 @@
 """Tests for CLI dispatch, error handling, and argument parsing."""
 
 import json
-from io import StringIO
-from unittest.mock import patch
 
 import pytest
 

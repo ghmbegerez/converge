@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import argparse
 import json
+from datetime import UTC
 
 from converge.cli._helpers import _out
 from converge.models import AgentPolicy, EventType
-
 
 # ---------------------------------------------------------------------------
 # Health
@@ -160,9 +160,10 @@ def cmd_audit_verify_chain(args: argparse.Namespace) -> int:
 
 
 def cmd_audit_prune(args: argparse.Namespace) -> int:
+    from datetime import datetime, timedelta
+
     from converge import event_log
-    from datetime import datetime, timedelta, timezone
-    before = (datetime.now(timezone.utc) - timedelta(days=args.retention_days)).isoformat()
+    before = (datetime.now(UTC) - timedelta(days=args.retention_days)).isoformat()
     count = event_log.prune_events(before,
                                     tenant_id=getattr(args, "tenant_id", None),
                                     dry_run=args.dry_run)
@@ -270,8 +271,8 @@ def cmd_semantic_status(args: argparse.Namespace) -> int:
 
 
 def cmd_semantic_index(args: argparse.Namespace) -> int:
-    from converge.semantic.indexer import index_intent
     from converge.semantic.embeddings import get_provider
+    from converge.semantic.indexer import index_intent
     provider = get_provider(getattr(args, "provider", "deterministic"))
     result = index_intent(
         args.intent_id, provider,
@@ -489,6 +490,7 @@ def cmd_coherence_accept(args: argparse.Namespace) -> int:
 def cmd_doctor(args: argparse.Namespace) -> int:
     """Validate environment setup and report health."""
     import shutil
+
     from converge import event_log, feature_flags
 
     checks, overall = [], "pass"

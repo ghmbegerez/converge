@@ -7,20 +7,14 @@ critical for correctness.  If an invariant breaks, the test names explain
 
 from __future__ import annotations
 
-import ast
 import re
 from pathlib import Path
 
-import pytest
-
 from converge.models import (
     AgentPolicy,
-    CheckResult,
     CommitLink,
     Event,
-    GateResult,
     Intent,
-    PolicyEvaluation,
     ReviewTask,
     RiskEval,
     Simulation,
@@ -122,6 +116,7 @@ class TestMergeFailureInvariant:
 
     def test_failed_merge_must_not_set_merged(self, db_path):
         from unittest.mock import patch
+
         from converge import engine, event_log
 
         self._setup_validated_intent(event_log, "inv4-merge-fail")
@@ -140,6 +135,7 @@ class TestMergeFailureInvariant:
 
     def test_failed_merge_emits_merge_failed_event(self, db_path):
         from unittest.mock import patch
+
         from converge import engine, event_log
         from converge.event_types import EventType
 
@@ -285,10 +281,10 @@ class TestConstantsCentralized:
 
     def test_defaults_exports_key_constants(self):
         from converge.defaults import (
+            MAX_RETRIES,
             QUERY_LIMIT_LARGE,
             QUERY_LIMIT_MEDIUM,
             QUERY_LIMIT_UNBOUNDED,
-            MAX_RETRIES,
             REVIEW_SLA_HOURS,
             ROLLOUT_HASH_CHARS,
         )

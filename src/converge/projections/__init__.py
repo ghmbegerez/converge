@@ -16,15 +16,21 @@ Modules:
 # Consumers can use `from converge import projections; projections.repo_health(...)`
 # or import directly: `from converge.projections.health import repo_health`
 
+from converge.projections.compliance import (
+    DEFAULT_THRESHOLDS,
+    compliance_report,
+)
 from converge.projections.health import (
     change_health,
     predict_health,
     repo_health,
 )
-from converge.projections.compliance import (
-    DEFAULT_THRESHOLDS,
-    compliance_report,
+from converge.projections.learning import (
+    derive_change_learning,
+    derive_health_learning,
 )
+from converge.projections.predictions import predict_issues
+from converge.projections.queue import agent_performance, queue_state
 from converge.projections.trends import (
     change_health_trend,
     entropy_trend,
@@ -32,13 +38,7 @@ from converge.projections.trends import (
     integration_metrics,
     risk_trend,
 )
-from converge.projections.predictions import predict_issues
-from converge.projections.queue import agent_performance, queue_state
 from converge.projections.verification import verification_debt
-from converge.projections.learning import (
-    derive_change_learning,
-    derive_health_learning,
-)
 
 __all__ = [
     # Health

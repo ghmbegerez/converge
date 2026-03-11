@@ -3,7 +3,14 @@
 import json
 
 from converge.models import GateName, PolicyVerdict, RiskLevel
-from converge.policy import PolicyConfig, evaluate, evaluate_risk_gate, calibrate_profiles, load_config, DEFAULT_PROFILES
+from converge.policy import (
+    DEFAULT_PROFILES,
+    PolicyConfig,
+    calibrate_profiles,
+    evaluate,
+    evaluate_risk_gate,
+    load_config,
+)
 
 
 def _config():

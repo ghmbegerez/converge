@@ -3,7 +3,7 @@
 import json
 
 from converge import analytics, event_log, exports
-from converge.models import Event, Intent, RiskLevel, Status, now_iso
+from converge.models import Event, Intent, RiskLevel, Status
 
 
 def _seed_full_pipeline(n=5):
@@ -237,7 +237,7 @@ class TestSaveArchaeologySnapshot:
             "coupling": [{"file_a": "a.py", "file_b": "b.py", "co_changes": 10}],
         }
         output = tmp_path / "snapshot.json"
-        path = analytics.save_archaeology_snapshot(report, output_path=str(output))
+        analytics.save_archaeology_snapshot(report, output_path=str(output))
 
         assert output.exists()
         saved = json.loads(output.read_text())

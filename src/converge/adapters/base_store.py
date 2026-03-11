@@ -30,7 +30,6 @@ from converge.adapters._semantic_mixin import (
 )
 from converge.adapters._store_dialect import _StoreDialect
 
-
 # ---------------------------------------------------------------------------
 # Schema (shared between all backends)
 # ---------------------------------------------------------------------------

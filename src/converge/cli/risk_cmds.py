@@ -10,7 +10,8 @@ from converge.models import EventType
 
 
 def cmd_risk_eval(args: argparse.Namespace) -> int:
-    from converge import event_log, risk as risk_mod
+    from converge import event_log
+    from converge import risk as risk_mod
     from converge.models import Simulation
     intent = event_log.get_intent(args.intent_id)
     if intent is None:
@@ -34,7 +35,8 @@ def cmd_risk_eval(args: argparse.Namespace) -> int:
 
 
 def cmd_risk_shadow(args: argparse.Namespace) -> int:
-    from converge import event_log, policy as policy_mod
+    from converge import event_log
+    from converge import policy as policy_mod
     risk_events = event_log.query(event_type=EventType.RISK_EVALUATED, intent_id=args.intent_id, limit=1)
     if not risk_events:
         return _out({"error": "No risk evaluation found. Run 'converge risk eval' first."})

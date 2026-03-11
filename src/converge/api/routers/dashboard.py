@@ -14,8 +14,8 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import PlainTextResponse
 
 from converge import event_log, exports, projections, security
-from converge.defaults import QUERY_LIMIT_UNBOUNDED
 from converge.api.auth import require_viewer
+from converge.defaults import QUERY_LIMIT_UNBOUNDED
 
 # --- Display/query limits ---
 _RISK_TREND_LIMIT = 50          # max risk trend entries in dashboard

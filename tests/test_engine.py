@@ -1,13 +1,13 @@
 """Tests for the core engine (3 invariants)."""
 
-from unittest.mock import patch, MagicMock
 import subprocess
+from unittest.mock import MagicMock, patch
 
 from conftest import make_intent
 
 from converge import engine, event_log
-from converge.models import Event, EventType, Intent, RiskLevel, Simulation, Status
-from converge.policy import PolicyConfig, DEFAULT_PROFILES
+from converge.models import Event, EventType, RiskLevel, Simulation, Status
+from converge.policy import DEFAULT_PROFILES, PolicyConfig
 
 
 class TestValidateIntent:
@@ -115,7 +115,7 @@ class TestProcessQueue:
 
     def test_invariant3_max_retries_rejects(self, db_path):
         """Invariant 3: retries > max → REJECTED"""
-        intent = make_intent(id="q-001", status=Status.VALIDATED)
+        make_intent(id="q-001", status=Status.VALIDATED)
         # Set retries to max
         event_log.update_intent_status("q-001", Status.VALIDATED, retries=3)
 

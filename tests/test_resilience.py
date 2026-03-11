@@ -2,20 +2,18 @@
 
 from __future__ import annotations
 
-import json
 import os
 import socket
 import threading
 import time
 from unittest.mock import patch
-from urllib.request import Request, urlopen
 from urllib.error import HTTPError
+from urllib.request import urlopen
 
 import pytest
 
-from converge.api.rate_limit import TenantRateLimiter, get_limiter, reset_limiter
+from converge.api.rate_limit import TenantRateLimiter, reset_limiter
 from converge.resilience import CircuitBreaker, CircuitOpen, OperationTimeout, retry, with_timeout
-
 
 # ---------------------------------------------------------------------------
 # Rate limiter (unit tests)
@@ -64,6 +62,7 @@ class TestRateLimiter:
 @pytest.fixture
 def live_server(db_path):
     import uvicorn
+
     from converge.api import create_app
 
     # Very low rate limit for testing
@@ -105,7 +104,7 @@ class TestRateLimitMiddleware:
 
             try:
                 urlopen(f"{live_server}/api/intents")
-                assert False, "Expected 429"
+                raise AssertionError("Expected 429")
             except HTTPError as e:
                 assert e.code == 429
 

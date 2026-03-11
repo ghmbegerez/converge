@@ -62,8 +62,8 @@ def request_review_http(
             priority=body.priority,
             tenant_id=tenant,
         )
-    except ValueError:
-        raise HTTPException(status_code=404, detail="Review request failed: intent not found")
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="Review request failed: intent not found") from exc
     return task.to_dict()
 
 
@@ -76,8 +76,8 @@ def assign_review_http(
 ):
     try:
         task = reviews.assign_review(task_id, body.reviewer)
-    except ValueError:
-        raise HTTPException(status_code=404, detail="Review task not found")
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="Review task not found") from exc
     return task.to_dict()
 
 
@@ -92,8 +92,8 @@ def complete_review_http(
         task = reviews.complete_review(
             task_id, resolution=body.resolution, notes=body.notes,
         )
-    except ValueError:
-        raise HTTPException(status_code=404, detail="Review task not found")
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="Review task not found") from exc
     return task.to_dict()
 
 
@@ -106,8 +106,8 @@ def cancel_review_http(
 ):
     try:
         task = reviews.cancel_review(task_id, reason=body.reason)
-    except ValueError:
-        raise HTTPException(status_code=404, detail="Review task not found")
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="Review task not found") from exc
     return task.to_dict()
 
 
@@ -120,6 +120,6 @@ def escalate_review_http(
 ):
     try:
         task = reviews.escalate_review(task_id, reason=body.reason)
-    except ValueError:
-        raise HTTPException(status_code=404, detail="Review task not found")
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="Review task not found") from exc
     return task.to_dict()

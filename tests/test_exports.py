@@ -1,12 +1,11 @@
 """Tests for decision dataset export module."""
 
 import json
-from pathlib import Path
 
 from conftest import make_intent
 
 from converge import event_log, exports
-from converge.models import Event, EventType, RiskLevel, Simulation, Status
+from converge.models import Event, EventType
 
 
 def _emit_sim_and_risk(intent_id: str, tenant_id: str = "team-a") -> None:

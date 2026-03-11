@@ -9,14 +9,13 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from unittest.mock import patch
-from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 import pytest
 
 from converge import event_log
 from converge.models import Intent, Status
-
 
 # ---------------------------------------------------------------------------
 # Fixture: server under background load
@@ -26,6 +25,7 @@ from converge.models import Intent, Status
 def loaded_server(db_path):
     """Server with background load generator for availability testing."""
     import uvicorn
+
     from converge.api import create_app
 
     # Seed intents for realistic load
@@ -69,7 +69,7 @@ def loaded_server(db_path):
             while not _stop_load.is_set():
                 try:
                     urlopen(f"{base}/api/intents", timeout=5)
-                except Exception:
+                except Exception:  # noqa: S110
                     pass
                 time.sleep(0.02)
 

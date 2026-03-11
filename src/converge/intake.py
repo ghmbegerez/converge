@@ -13,7 +13,7 @@ from __future__ import annotations
 import hashlib
 import logging
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from converge import event_log, projections
@@ -26,7 +26,7 @@ from converge.defaults import (
 )
 from converge.event_payloads import IntakePayload
 from converge.event_types import EventType
-from converge.models import Event, Intent, RiskLevel, now_iso
+from converge.models import Event, Intent, RiskLevel
 
 log = logging.getLogger("converge.intake")
 
@@ -35,7 +35,7 @@ log = logging.getLogger("converge.intake")
 # Types
 # ---------------------------------------------------------------------------
 
-class IntakeMode(str, Enum):
+class IntakeMode(StrEnum):
     OPEN = "open"
     THROTTLE = "throttle"
     PAUSE = "pause"

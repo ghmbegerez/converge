@@ -1,11 +1,10 @@
 """Tests for LLM review advisor (Initiative 4)."""
-import os
-import pytest
 from unittest.mock import MagicMock, patch
 
-from converge.llm.null_adapter import NullLLMAdapter
-from converge.llm.port import ReviewAnalysis
+import pytest
+
 from converge.llm import registry
+from converge.llm.null_adapter import NullLLMAdapter
 
 
 @pytest.fixture(autouse=True)
@@ -54,7 +53,6 @@ def test_rate_limit_allows():
 
 
 def test_rate_limit_blocks(monkeypatch):
-    import time
     monkeypatch.setattr(registry, "MAX_CALLS_PER_HOUR", 2)
     registry._call_timestamps.clear()
     registry.record_call()
@@ -65,7 +63,7 @@ def test_rate_limit_blocks(monkeypatch):
 def test_review_with_llm_shadow(db_path, monkeypatch):
     """In shadow mode, LLM analysis generates event but doesn't block."""
     from converge import event_log, feature_flags
-    from converge.models import Event, EventType, Intent, RiskLevel, Status
+    from converge.models import Intent, Status
 
     monkeypatch.setenv("CONVERGE_FF_LLM_REVIEW_ADVISOR", "1")
     monkeypatch.setenv("CONVERGE_FF_LLM_REVIEW_ADVISOR_MODE", "shadow")
@@ -84,8 +82,7 @@ def test_review_with_llm_shadow(db_path, monkeypatch):
 
 def test_review_with_llm_enforce(db_path, monkeypatch):
     """In enforce mode, analysis is generated and event emitted."""
-    from converge import event_log, feature_flags
-    from converge.models import Event, EventType, Intent, RiskLevel, Status
+    from converge import feature_flags
 
     monkeypatch.setenv("CONVERGE_FF_LLM_REVIEW_ADVISOR", "1")
     monkeypatch.setenv("CONVERGE_FF_LLM_REVIEW_ADVISOR_MODE", "enforce")
@@ -99,7 +96,7 @@ def test_review_with_llm_enforce(db_path, monkeypatch):
 def test_review_llm_failure(db_path, monkeypatch):
     """If LLM adapter fails, REVIEW_ANALYSIS_FAILED event is emitted, review continues."""
     from converge import event_log, feature_flags
-    from converge.models import Event, EventType, Intent, Status
+    from converge.models import EventType, Intent, Status
 
     monkeypatch.setenv("CONVERGE_FF_LLM_REVIEW_ADVISOR", "1")
     monkeypatch.setenv("CONVERGE_FF_LLM_REVIEW_ADVISOR_MODE", "enforce")

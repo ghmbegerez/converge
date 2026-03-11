@@ -10,8 +10,7 @@ from pathlib import Path
 import pytest
 
 from converge import engine, event_log
-from converge.models import Event, Intent, RiskLevel, Status
-
+from converge.models import Intent, RiskLevel, Status
 
 # ---------------------------------------------------------------------------
 # Fixtures: real git repo

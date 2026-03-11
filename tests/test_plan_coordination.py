@@ -3,7 +3,7 @@
 from conftest import make_intent
 
 from converge import engine, event_log
-from converge.models import Event, EventType, Intent, RiskLevel, Status
+from converge.models import EventType, Intent, Status
 
 
 class TestPlanIdField:

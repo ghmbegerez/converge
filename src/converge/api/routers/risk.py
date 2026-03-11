@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from converge import analytics, event_log
-from converge.defaults import QUERY_LIMIT_LARGE
 from converge.api.auth import enforce_tenant, require_viewer
 from converge.api.schemas import RiskPolicyBody
+from converge.defaults import QUERY_LIMIT_LARGE
 from converge.models import EventType
 
 router = APIRouter(tags=["risk"])

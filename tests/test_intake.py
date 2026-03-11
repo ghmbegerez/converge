@@ -14,8 +14,7 @@ from converge.intake import (
     intake_status,
     set_intake_mode,
 )
-from converge.models import Intent, RiskLevel, Status, now_iso
-
+from converge.models import RiskLevel, Status
 
 # ---------------------------------------------------------------------------
 # TestThrottleBucket

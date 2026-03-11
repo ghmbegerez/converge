@@ -1,10 +1,8 @@
 """Tests for risk auto-classification (Initiative 2)."""
-import pytest
 
 from conftest import make_intent
 
-from converge.defaults import RISK_CLASSIFICATION_THRESHOLDS
-from converge.models import Event, EventType, Intent, RiskLevel, Status
+from converge.models import Event, EventType, RiskLevel
 from converge.risk.eval import classify_risk_level
 
 

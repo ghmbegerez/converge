@@ -11,20 +11,17 @@ from __future__ import annotations
 import os
 
 import pytest
-
 from conftest import make_intent  # noqa: F401 — available for contract tests that need it
 
 from converge.adapters.sqlite_store import SqliteStore
-from converge.models import Event, Intent, RiskLevel, Status, new_id, now_iso
+from converge.models import Event, Intent, Status
 from converge.ports import (
-    ConvergeStore,
     DeliveryPort,
     EventStorePort,
     IntentStorePort,
     LockPort,
     PolicyStorePort,
 )
-
 
 # ---------------------------------------------------------------------------
 # Parametrised fixture — extend params for new backends

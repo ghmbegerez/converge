@@ -9,17 +9,13 @@ No mocks on the core path. Real git repos, real merge operations, real policy ev
 from __future__ import annotations
 
 import json
-import os
 import subprocess
-from pathlib import Path
-from unittest.mock import AsyncMock, patch
 from urllib.request import Request, urlopen
 
 import pytest
 
 from converge import engine, event_log
-from converge.models import EventType, Intent, RiskLevel, Simulation, Status
-
+from converge.models import EventType, Intent, RiskLevel, Status
 
 # ---------------------------------------------------------------------------
 # Git repo fixtures

@@ -7,7 +7,6 @@ and coupling context.  Same input always produces the same output (and checksum)
 from __future__ import annotations
 
 import hashlib
-import json
 from typing import Any
 
 
@@ -54,7 +53,7 @@ def build_canonical_text(
 
     # Section 5: commit links (sorted by sha+role for determinism)
     if commit_links:
-        for link in sorted(commit_links, key=lambda l: (l.get("sha", ""), l.get("role", ""))):
+        for link in sorted(commit_links, key=lambda lnk: (lnk.get("sha", ""), lnk.get("role", ""))):
             parts.append(f"link:{link.get('sha', '')}:{link.get('role', '')}")
 
     # Section 6: coupling context (sorted by file pair)
@@ -108,7 +107,7 @@ def build_semantic_text(
 
     # Section 5: commit links (sorted by sha+role for determinism)
     if commit_links:
-        for link in sorted(commit_links, key=lambda l: (l.get("sha", ""), l.get("role", ""))):
+        for link in sorted(commit_links, key=lambda lnk: (lnk.get("sha", ""), lnk.get("role", ""))):
             parts.append(f"link:{link.get('sha', '')}:{link.get('role', '')}")
 
     # Section 6: coupling context (sorted by file pair)

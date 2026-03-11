@@ -7,7 +7,7 @@ assignment, review, and completion.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from converge import event_log
@@ -15,14 +15,12 @@ from converge.defaults import QUERY_LIMIT_LARGE, REVIEW_SLA_HOURS
 from converge.models import (
     Event,
     EventType,
-    Intent,
     ReviewStatus,
     ReviewTask,
     RiskLevel,
     new_id,
     now_iso,
 )
-
 
 # ---------------------------------------------------------------------------
 # SLA configuration
@@ -36,7 +34,7 @@ from converge.models import (
 def _compute_sla_deadline(risk_level: RiskLevel, created_at: str | None = None) -> str:
     """Calculate SLA deadline based on risk level."""
     hours = REVIEW_SLA_HOURS.get(risk_level.value, 48)
-    base = datetime.fromisoformat(created_at) if created_at else datetime.now(timezone.utc)
+    base = datetime.fromisoformat(created_at) if created_at else datetime.now(UTC)
     deadline = base + timedelta(hours=hours)
     return deadline.isoformat()
 

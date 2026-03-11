@@ -10,12 +10,12 @@ from __future__ import annotations
 import json
 import logging
 from collections import Counter
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 from converge import event_log
-from converge.models import Event, EventType, new_id, now_iso
+from converge.models import Event, EventType, new_id
 
 log = logging.getLogger("converge.coherence_feedback")
 
@@ -26,7 +26,7 @@ log = logging.getLogger("converge.coherence_feedback")
 
 def analyze_patterns(*, lookback_days: int = 90) -> list[dict[str, Any]]:
     """Analyze recent failures and generate question suggestions."""
-    since = (datetime.now(timezone.utc) - timedelta(days=lookback_days)).isoformat()
+    since = (datetime.now(UTC) - timedelta(days=lookback_days)).isoformat()
 
     rejections = event_log.query(
         event_type=EventType.INTENT_REJECTED, since=since, limit=500,
@@ -51,7 +51,6 @@ def _detect_module_failures(
 ) -> list[dict[str, Any]]:
     """If intents touching module X fail >60% of the time, suggest a question."""
     dir_failures: Counter[str] = Counter()
-    dir_total: Counter[str] = Counter()
 
     for events in (rejections, merge_failures):
         for ev in events:

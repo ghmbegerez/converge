@@ -140,7 +140,7 @@ def generate_metrics() -> str:
         for tenant, cnt in sorted(limiter.throttled_by_tenant.items()):
             lines.append(f'converge_rate_limit_throttled_total{{tenant="{tenant}"}} {cnt}')
         lines.append(f"converge_rate_limit_throttled_global {limiter.total_throttled}")
-    except Exception:
+    except Exception:  # noqa: S110
         pass  # rate limiter not initialized
 
     return "\n".join(lines) + "\n"

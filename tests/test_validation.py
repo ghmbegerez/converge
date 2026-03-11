@@ -4,37 +4,28 @@ These tests verify that the pipeline functions work correctly when called
 directly, complementing the engine-level tests in test_engine.py.
 """
 
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 from conftest import make_intent
 
 from converge import event_log
 from converge.models import (
     CoherenceEvaluation,
-    Event,
     EventType,
-    Intent,
     PolicyEvaluation,
     PolicyVerdict,
     RiskEval,
-    RiskLevel,
     Simulation,
     Status,
 )
-from converge.policy import PolicyConfig, DEFAULT_PROFILES
 from converge.validation_pipeline import (
     StepResult,
-    run_validation_pipeline,
-    block_intent,
-    _resolve_simulation,
-    _run_validation_checks,
     _evaluate_risk_step,
-    _evaluate_coherence_step,
-    _evaluate_policy_step,
-    _evaluate_risk_gate_step,
     _finalize_validation,
+    _resolve_simulation,
+    block_intent,
+    run_validation_pipeline,
 )
-
 
 # ---------------------------------------------------------------------------
 # StepResult type alias

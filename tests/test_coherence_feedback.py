@@ -1,5 +1,4 @@
 """Tests for coherence feedback loop (Initiative 5)."""
-import pytest
 
 from converge.models import Event, EventType
 
@@ -13,7 +12,7 @@ def test_analyze_empty_history(db_path):
 
 def test_detect_module_failures(db_path):
     """With rejections concentrated in a module, generates suggestion."""
-    from converge import event_log, coherence_feedback
+    from converge import coherence_feedback, event_log
 
     # Create multiple rejection events referencing the same module
     for i in range(4):
@@ -31,7 +30,7 @@ def test_detect_module_failures(db_path):
 
 def test_detect_risk_band_patterns(db_path):
     """Failures in specific risk band generate suggestion."""
-    from converge import event_log, coherence_feedback
+    from converge import coherence_feedback, event_log
 
     for i in range(6):
         event_log.append(Event(
@@ -48,7 +47,7 @@ def test_detect_risk_band_patterns(db_path):
 
 def test_emit_suggestions(db_path):
     """Suggestions are emitted as COHERENCE_SUGGESTION events."""
-    from converge import event_log, coherence_feedback
+    from converge import coherence_feedback, event_log
 
     suggestions = [{
         "type": "test",
@@ -73,8 +72,9 @@ def test_emit_suggestions(db_path):
 
 def test_accept_suggestion(db_path, tmp_path):
     """Accepted suggestion is added to harness config and event emitted."""
-    from converge import event_log, coherence_feedback, coherence
     import json
+
+    from converge import coherence_feedback, event_log
 
     # Create a harness config
     harness_path = tmp_path / "coherence_harness.json"
@@ -138,7 +138,7 @@ def test_flag_disabled(db_path, monkeypatch):
 
 def test_lookback_respects_window(db_path):
     """Analysis only considers events within the lookback window."""
-    from converge import event_log, coherence_feedback
+    from converge import coherence_feedback, event_log
 
     # Events with default timestamps (now) should be within lookback
     event_log.append(Event(

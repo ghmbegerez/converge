@@ -7,16 +7,16 @@ Re-exported from models.py for backward compatibility.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from enum import Enum
+from datetime import UTC, datetime
+from enum import StrEnum
 from typing import Any
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
-class FindingSeverity(str, Enum):
+class FindingSeverity(StrEnum):
     CRITICAL = "critical"
     HIGH = "high"
     MEDIUM = "medium"
@@ -24,7 +24,7 @@ class FindingSeverity(str, Enum):
     INFO = "info"
 
 
-class FindingCategory(str, Enum):
+class FindingCategory(StrEnum):
     SAST = "sast"
     SCA = "sca"
     SECRETS = "secrets"

@@ -1,34 +1,28 @@
 """Tests for the coherence harness (systemic coherence evaluation)."""
 
 import json
-import os
-import tempfile
-from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 import pytest
-
 from conftest import make_intent
 
 from converge import coherence, engine, event_log
+from converge.defaults import DEFAULT_PROFILES
 from converge.models import (
     CoherenceEvaluation,
     CoherenceQuestion,
     CoherenceResult,
-    CoherenceVerdict,
     Event,
     EventType,
     GateName,
-    Intent,
     PolicyVerdict,
     RiskEval,
     RiskLevel,
     Simulation,
     Status,
 )
-from converge.policy import PolicyConfig, evaluate as policy_evaluate
-from converge.defaults import DEFAULT_PROFILES
-
+from converge.policy import PolicyConfig
+from converge.policy import evaluate as policy_evaluate
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -530,7 +524,7 @@ class TestWarnCreatesReview:
         )
         with patch.object(coherence, "load_questions", return_value=_make_questions()), \
              patch.object(coherence, "evaluate", return_value=warn_eval):
-            result = engine.validate_intent(intent, sim=sim, skip_checks=True)
+            engine.validate_intent(intent, sim=sim, skip_checks=True)
 
         # Should have created a review task
         review_events = event_log.query(event_type=EventType.REVIEW_REQUESTED)
@@ -580,7 +574,7 @@ class TestReviewBlocksQueue:
         )
 
         # Need a simulation for revalidation
-        sim = Simulation(mergeable=True, files_changed=["a.py"], source="feature/x", target="main")
+        Simulation(mergeable=True, files_changed=["a.py"], source="feature/x", target="main")
         event_log.append(Event(
             event_type=EventType.SIMULATION_COMPLETED,
             intent_id=intent.id,

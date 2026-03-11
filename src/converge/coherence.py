@@ -18,9 +18,6 @@ from pathlib import Path
 from typing import Any
 
 from converge import event_log
-
-log = logging.getLogger(__name__)
-
 from converge.defaults import COHERENCE_PASS_THRESHOLD, COHERENCE_WARN_THRESHOLD, validate_shell_command
 from converge.models import (
     CoherenceEvaluation,
@@ -31,6 +28,8 @@ from converge.models import (
     EventType,
     RiskEval,
 )
+
+log = logging.getLogger(__name__)
 
 HARNESS_CONFIG_PATH = ".converge/coherence_harness.json"
 QUESTION_TIMEOUT_SECONDS = int(os.environ.get("CONVERGE_QUESTION_TIMEOUT", "60"))

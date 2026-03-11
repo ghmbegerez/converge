@@ -14,7 +14,7 @@ import psycopg.errors
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
 
-from converge.adapters.base_store import SCHEMA, _MIGRATIONS, BaseConvergeStore
+from converge.adapters.base_store import _MIGRATIONS, SCHEMA, BaseConvergeStore
 
 _log = logging.getLogger("converge.adapters.postgres")
 

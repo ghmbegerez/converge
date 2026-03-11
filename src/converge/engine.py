@@ -20,17 +20,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-log = logging.getLogger(__name__)
-
-from converge.models import (
-    CheckResult,
-    Event,
-    EventType,
-    Intent,
-    RiskLevel,
-    Simulation,
-    Status,
-)
 from converge import event_log, policy, scm
 from converge.defaults import CHECK_OUTPUT_LIMIT, CHECK_TIMEOUT_SECONDS, DEFAULT_TARGET_BRANCH, QUEUE_LOCK_TTL_SECONDS
 from converge.event_payloads import (
@@ -40,8 +29,18 @@ from converge.event_payloads import (
     RejectPayload,
     SimulationPayload,
 )
-from converge.validation_pipeline import run_validation_pipeline, block_intent
+from converge.models import (
+    CheckResult,
+    Event,
+    EventType,
+    Intent,
+    RiskLevel,
+    Simulation,
+    Status,
+)
+from converge.validation_pipeline import block_intent, run_validation_pipeline
 
+log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Simulate (Invariant 1, part 1: can_merge)

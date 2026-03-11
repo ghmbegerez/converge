@@ -1,15 +1,12 @@
 """Tests for safe worktree-isolated merge (execute_merge_safe)."""
 
-import os
 import subprocess
-from pathlib import Path
 
 import pytest
 
 from converge.scm import (
     current_head,
     execute_merge_safe,
-    repo_root,
 )
 
 
@@ -118,13 +115,13 @@ class TestWorktreeMerge:
 
     def test_working_directory_untouched(self, git_repo):
         """HEAD and index of the main working directory are preserved during merge."""
-        head_before = current_head(cwd=git_repo)
+        current_head(cwd=git_repo)
 
         # Create a tracked file change to verify index isn't disturbed
         marker = git_repo / "marker.txt"
         marker.write_text("untouched\n")
 
-        sha = execute_merge_safe("feature/x", "main", cwd=git_repo)
+        execute_merge_safe("feature/x", "main", cwd=git_repo)
 
         # The marker file should still be there (working dir not reset)
         assert marker.exists()

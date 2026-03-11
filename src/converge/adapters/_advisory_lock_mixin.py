@@ -15,7 +15,7 @@ log = logging.getLogger("converge.adapters.advisory_lock")
 
 def _lock_id(lock_name: str) -> int:
     """Convert lock name to bigint for pg_advisory_lock."""
-    h = hashlib.md5(lock_name.encode()).digest()
+    h = hashlib.md5(lock_name.encode()).digest()  # noqa: S324
     return struct.unpack(">q", h[:8])[0]
 
 

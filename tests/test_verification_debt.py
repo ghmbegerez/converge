@@ -1,15 +1,14 @@
 """Tests for verification debt projection (AR-28..AR-31)."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from conftest import make_intent
 
 from converge import event_log
 from converge.event_types import EventType
-from converge.models import Event, Intent, ReviewStatus, ReviewTask, RiskLevel, Status, now_iso
+from converge.models import Event, Status
 from converge.projections.verification import (
     _DEBT_GREEN,
-    _DEBT_YELLOW,
     _W_CONFLICT,
     _W_QUEUE_PRESSURE,
     _W_RETRY,
@@ -21,7 +20,7 @@ from converge.reviews import request_review
 
 
 def _old_timestamp(hours_ago: int) -> str:
-    return (datetime.now(timezone.utc) - timedelta(hours=hours_ago)).isoformat()
+    return (datetime.now(UTC) - timedelta(hours=hours_ago)).isoformat()
 
 
 # ---------------------------------------------------------------------------
@@ -142,7 +141,7 @@ class TestReviewBacklog:
     def test_pending_reviews_increase_debt(self, db_path):
         """Pending review tasks increase debt."""
         make_intent("r-1")
-        for i in range(5):
+        for _i in range(5):
             request_review("r-1")
         snap = verification_debt(review_capacity=10)
         # 5/10 = 0.5 → 0.5 * 25 = 12.5
@@ -174,7 +173,7 @@ class TestConflictPressure:
 
     def test_all_mergeable(self, db_path):
         """All simulations mergeable → zero conflict."""
-        for i in range(5):
+        for _i in range(5):
             event_log.append(Event(
                 event_type=EventType.SIMULATION_COMPLETED,
                 payload={"mergeable": True},
@@ -184,7 +183,7 @@ class TestConflictPressure:
 
     def test_all_conflicting_merge_only(self, db_path):
         """All sims conflicting, no semantic → 70% of conflict weight."""
-        for i in range(5):
+        for _i in range(5):
             event_log.append(Event(
                 event_type=EventType.SIMULATION_COMPLETED,
                 payload={"mergeable": False},
@@ -195,7 +194,7 @@ class TestConflictPressure:
 
     def test_all_conflicting_with_semantic(self, db_path):
         """All merge + full semantic conflicts → full conflict weight."""
-        for i in range(5):
+        for _i in range(5):
             event_log.append(Event(
                 event_type=EventType.SIMULATION_COMPLETED,
                 payload={"mergeable": False},
@@ -213,7 +212,7 @@ class TestConflictPressure:
     def test_semantic_only_conflict(self, db_path):
         """No merge conflicts, only semantic → 30% of conflict weight."""
         # All mergeable sims
-        for i in range(3):
+        for _i in range(3):
             event_log.append(Event(
                 event_type=EventType.SIMULATION_COMPLETED,
                 payload={"mergeable": True},
@@ -312,7 +311,7 @@ class TestCompositeScore:
         # all conflicting (merge + semantic), 10+ pending reviews
         for i in range(50):
             make_intent(f"max-{i}", created_at=_old_timestamp(48), retries=3)
-        for i in range(50):
+        for _i in range(50):
             event_log.append(Event(
                 event_type=EventType.SIMULATION_COMPLETED,
                 payload={"mergeable": False},
@@ -350,7 +349,7 @@ class TestComplianceIntegration:
         # Push debt high: max everything
         for i in range(50):
             make_intent(f"c-{i}", created_at=_old_timestamp(48), retries=3)
-        for i in range(50):
+        for _i in range(50):
             event_log.append(Event(
                 event_type=EventType.SIMULATION_COMPLETED,
                 payload={"mergeable": False},
@@ -417,7 +416,7 @@ class TestIntakeIntegration:
         # Create high debt: 50+ stale intents at capacity with retries
         for i in range(60):
             make_intent(f"hd-{i}", created_at=_old_timestamp(48), retries=2)
-        from converge.intake import _compute_auto_mode, DEFAULT_INTAKE_CONFIG
+        from converge.intake import DEFAULT_INTAKE_CONFIG, _compute_auto_mode
         cfg = dict(DEFAULT_INTAKE_CONFIG)
         mode, signals = _compute_auto_mode(config=cfg)
         # With high debt, effective_score should be low

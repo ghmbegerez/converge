@@ -5,8 +5,6 @@ from __future__ import annotations
 import json
 import logging
 
-import pytest
-
 
 class TestJsonFormatter:
     def test_format_basic_record(self):
@@ -90,8 +88,12 @@ class TestSetupLogging:
 class TestMetrics:
     def test_record_request_and_generate(self):
         from converge.observability import (
-            _request_count, _request_latency_sum, _request_latency_count,
-            _error_count, record_request, generate_metrics,
+            _error_count,
+            _request_count,
+            _request_latency_count,
+            _request_latency_sum,
+            generate_metrics,
+            record_request,
         )
         # Clear state
         _request_count.clear()

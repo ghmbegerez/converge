@@ -10,7 +10,6 @@ from typing import Any, Protocol, runtime_checkable
 
 from converge.models import Event, Intent, ReviewTask, SecurityFinding, Status
 
-
 # ---------------------------------------------------------------------------
 # Individual ports
 # ---------------------------------------------------------------------------

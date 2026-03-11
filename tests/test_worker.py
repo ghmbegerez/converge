@@ -4,19 +4,16 @@ from __future__ import annotations
 
 import json
 import os
-import signal
 import threading
 import time
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 from urllib.request import Request, urlopen
-from urllib.error import HTTPError
 
 import pytest
 
 from converge import event_log
-from converge.models import Event, EventType, Intent, Status
+from converge.models import EventType, Intent, Status
 from converge.worker import QueueWorker, WorkerConfig
-
 
 # ---------------------------------------------------------------------------
 # Worker unit tests
