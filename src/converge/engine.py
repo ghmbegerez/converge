@@ -32,7 +32,7 @@ from converge.models import (
     Status,
 )
 from converge import event_log, policy, scm
-from converge.defaults import CHECK_OUTPUT_LIMIT, CHECK_TIMEOUT_SECONDS, DEFAULT_TARGET_BRANCH
+from converge.defaults import CHECK_OUTPUT_LIMIT, CHECK_TIMEOUT_SECONDS, DEFAULT_TARGET_BRANCH, QUEUE_LOCK_TTL_SECONDS
 from converge.event_payloads import (
     CheckPayload,
     MergeFailedPayload,
@@ -263,7 +263,7 @@ def process_queue(
     opts = _QueueOpts(max_retries=max_retries, use_last_simulation=use_last_simulation,
                       skip_checks=skip_checks, auto_confirm=auto_confirm, cwd=cwd)
 
-    if not event_log.acquire_queue_lock():
+    if not event_log.acquire_queue_lock(ttl_seconds=QUEUE_LOCK_TTL_SECONDS):
         lock_info = event_log.get_queue_lock_info()
         log.info("process_queue skipped: lock held")
         return [{"error": "Queue lock held. Another process may be running.", "lock": lock_info}]

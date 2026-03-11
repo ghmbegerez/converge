@@ -8,11 +8,14 @@ methods being available via MRO.
 from __future__ import annotations
 
 import json
+import logging
 import os
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from converge.models import now_iso
+
+log = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -158,6 +161,16 @@ class LockMixin:
             datetime.now(timezone.utc) + timedelta(seconds=ttl_seconds)
         ).isoformat()
         with self._connection() as conn:
+            # Log expired locks before cleaning them up
+            expired = conn.execute(
+                f"SELECT holder_pid, acquired_at FROM queue_locks WHERE lock_name = {ph} AND expires_at < {ph}",
+                (lock_name, now),
+            ).fetchall()
+            for row in expired:
+                log.info(
+                    "queue_lock.expired_cleaned",
+                    extra={"holder_pid": row["holder_pid"], "acquired_at": row["acquired_at"], "lock_name": lock_name},
+                )
             conn.execute(
                 f"DELETE FROM queue_locks WHERE lock_name = {ph} AND expires_at < {ph}",
                 (lock_name, now),
@@ -240,3 +253,13 @@ class DeliveryMixin:
         with self._connection() as conn:
             conn.execute(sql, (delivery_id, now_iso()))
             conn.commit()
+
+    def prune_deliveries(self, before: str) -> int:
+        ph = self._ph
+        with self._connection() as conn:
+            cursor = conn.execute(
+                f"DELETE FROM webhook_deliveries WHERE received_at < {ph}",
+                (before,),
+            )
+            conn.commit()
+            return cursor.rowcount

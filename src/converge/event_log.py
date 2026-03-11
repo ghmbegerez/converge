@@ -386,6 +386,10 @@ def record_delivery(delivery_id: str) -> None:
     _get_store().record_delivery(delivery_id)
 
 
+def prune_deliveries(before: str) -> int:
+    return _get_store().prune_deliveries(before)
+
+
 # ---------------------------------------------------------------------------
 # Event chain state
 # ---------------------------------------------------------------------------

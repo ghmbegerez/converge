@@ -29,6 +29,7 @@ import logging
 import os
 import signal
 import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -81,6 +82,9 @@ class QueueWorker:
         self._total_processed = 0
         self._heartbeat_interval_cycles = int(
             os.environ.get("CONVERGE_WORKER_HEARTBEAT_CYCLES", "10"),
+        )
+        self._prune_interval_cycles = int(
+            os.environ.get("CONVERGE_WORKER_PRUNE_INTERVAL_CYCLES", "100"),
         )
         self._start_time: float | None = None
 
@@ -185,6 +189,7 @@ class QueueWorker:
                     })
 
         self._maybe_emit_heartbeat()
+        self._maybe_prune()
         return results
 
     def _maybe_emit_heartbeat(self) -> None:
@@ -205,6 +210,25 @@ class QueueWorker:
                 "pid": os.getpid(),
             },
         ))
+
+    def _maybe_prune(self) -> None:
+        """Periodically prune old events and deliveries (every N cycles)."""
+        if self._prune_interval_cycles <= 0:
+            return
+        if self._cycles % self._prune_interval_cycles != 0:
+            return
+
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=90)).isoformat()
+        try:
+            pruned_events = event_log.prune_events(before=cutoff)
+            pruned_deliveries = event_log.prune_deliveries(before=cutoff)
+            if pruned_events or pruned_deliveries:
+                log.info(
+                    "Auto-prune cycle %d: pruned %d events, %d deliveries (before %s)",
+                    self._cycles, pruned_events, pruned_deliveries, cutoff,
+                )
+        except Exception:
+            log.exception("Error during auto-prune (cycle %d)", self._cycles)
 
     def _publish_results(self, results: list[dict[str, Any]]) -> None:
         """Publish decisions to GitHub (runs async in a one-shot event loop)."""
